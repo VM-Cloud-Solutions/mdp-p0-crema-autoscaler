@@ -101,7 +101,7 @@ public class CloudRunClientWrapper {
     OperationFuture<WorkerPool, WorkerPool> operation =
         workerPoolsClient.updateWorkerPoolAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); // Wait for acceptance only, not completion
+    operation.getInitialFuture().get(); 
   }
 
   public int getServiceInstanceCount(String serviceName, String projectId, String region) {
@@ -138,14 +138,16 @@ public class CloudRunClientWrapper {
         ? currentService.getTemplate().getScaling().toBuilder()
         : RevisionScaling.newBuilder();
 
-    // Aseguramos que el valor de instancias se aplique explícitamente (incluso cuando es 0)
     RevisionScaling newScaling = scalingBuilder.setMinInstanceCount(instances).build();
 
     RevisionTemplate.Builder templateBuilder =
         currentService.getTemplate().toBuilder().setScaling(newScaling);
 
-    if (templateBuilder.hasVpcAccess() && templateBuilder.getVpcAccess().getConnector().isEmpty()) {
-      templateBuilder.clearVpcAccess();
+    if (templateBuilder.hasVpcAccess()) {
+      String connector = templateBuilder.getVpcAccess().getConnector();
+      if (connector.isEmpty() || !connector.startsWith("projects/")) {
+        templateBuilder.clearVpcAccess();
+      }
     }
 
     Service serviceToUpdate = 
@@ -165,7 +167,7 @@ public class CloudRunClientWrapper {
 
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); // Wait for acceptance only, not completion
+    operation.getInitialFuture().get(); 
   }
 
   public void updateServiceManualInstances(
