@@ -144,26 +144,20 @@ public class CloudRunClientWrapper {
     RevisionTemplate.Builder templateBuilder =
         currentService.getTemplate().toBuilder().setScaling(newScaling);
 
-    // CORRECCIÓN REAL IMPLEMENTADA: Auto-completar la ruta del conector VPC si no viene en formato completo
+    // CORRECCIÓN EXACTA: Forzar ruta completa y egress ALL_TRAFFIC para el conector VPC
     if (templateBuilder.hasVpcAccess()) {
       VpcAccess vpcAccess = templateBuilder.getVpcAccess();
       String connector = vpcAccess != null ? vpcAccess.getConnector() : null;
       
       if (connector != null && !connector.isEmpty()) {
-        boolean isValidFormat = connector.matches("^projects/[^/]+/locations/[^/]+/connectors/[^/]+$");
+        String connectorName = connector.contains("/") ? connector.substring(connector.lastIndexOf('/') + 1) : connector;
+        String fullConnectorPath = String.format("projects/%s/locations/%s/connectors/%s", projectId, region, connectorName);
         
-        if (!isValidFormat) {
-          // Extraer el nombre del conector si viene con barras parciales y armar la ruta absoluta real
-          String connectorName = connector.contains("/") ? connector.substring(connector.lastIndexOf('/') + 1) : connector;
-          String fullConnectorPath = String.format("projects/%s/locations/%s/connectors/%s", projectId, region, connectorName);
-          
-          VpcAccess correctedVpcAccess = vpcAccess.toBuilder()
-              .setConnector(fullConnectorPath)
-              .build();
-              
-          templateBuilder.setVpcAccess(correctedVpcAccess);
-          logger.atInfo().log("Corrigiendo ruta de VPC Connector a formato completo: %s", fullConnectorPath);
-        }
+        VpcAccess.Builder vpcBuilder = vpcAccess.toBuilder()
+            .setConnector(fullConnectorPath)
+            .setEgress(VpcAccess.VpcAccessEgress.ALL_TRAFFIC);
+            
+        templateBuilder.setVpcAccess(vpcBuilder.build());
       } else {
         templateBuilder.clearVpcAccess();
       }
