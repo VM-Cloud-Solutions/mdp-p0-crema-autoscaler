@@ -30,6 +30,7 @@ import com.google.cloud.run.v2.ServiceScaling;
 import com.google.cloud.run.v2.ServicesClient;
 import com.google.cloud.run.v2.UpdateServiceRequest;
 import com.google.cloud.run.v2.UpdateWorkerPoolRequest;
+import com.google.cloud.run.v2.VpcAccess;
 import com.google.cloud.run.v2.WorkerPool;
 import com.google.cloud.run.v2.WorkerPoolName;
 import com.google.cloud.run.v2.WorkerPoolScaling;
@@ -143,16 +144,33 @@ public class CloudRunClientWrapper {
     RevisionTemplate.Builder templateBuilder =
         currentService.getTemplate().toBuilder().setScaling(newScaling);
 
+    // CORRECCIÓN REAL IMPLEMENTADA: Auto-completar la ruta del conector VPC si no viene en formato completo
     if (templateBuilder.hasVpcAccess()) {
-      String connector = templateBuilder.getVpcAccess().getConnector();
-      if (connector.isEmpty() || !connector.startsWith("projects/")) {
+      VpcAccess vpcAccess = templateBuilder.getVpcAccess();
+      String connector = vpcAccess != null ? vpcAccess.getConnector() : null;
+      
+      if (connector != null && !connector.isEmpty()) {
+        boolean isValidFormat = connector.matches("^projects/[^/]+/locations/[^/]+/connectors/[^/]+$");
+        
+        if (!isValidFormat) {
+          // Extraer el nombre del conector si viene con barras parciales y armar la ruta absoluta real
+          String connectorName = connector.contains("/") ? connector.substring(connector.lastIndexOf('/') + 1) : connector;
+          String fullConnectorPath = String.format("projects/%s/locations/%s/connectors/%s", projectId, region, connectorName);
+          
+          VpcAccess correctedVpcAccess = vpcAccess.toBuilder()
+              .setConnector(fullConnectorPath)
+              .build();
+              
+          templateBuilder.setVpcAccess(correctedVpcAccess);
+          logger.atInfo().log("Corrigiendo ruta de VPC Connector a formato completo: %s", fullConnectorPath);
+        }
+      } else {
         templateBuilder.clearVpcAccess();
       }
     }
 
     Service serviceToUpdate = 
-        Service.newBuilder()
-            .setName(currentService.getName())
+        currentService.toBuilder()
             .setTemplate(templateBuilder)
             .build();
 
