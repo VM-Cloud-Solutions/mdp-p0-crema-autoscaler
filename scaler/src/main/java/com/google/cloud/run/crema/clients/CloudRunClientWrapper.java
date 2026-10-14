@@ -144,23 +144,30 @@ public class CloudRunClientWrapper {
     RevisionTemplate.Builder templateBuilder =
         currentService.getTemplate().toBuilder().setScaling(newScaling);
 
-    // CORRECCIÓN EXACTA: Forzar ruta completa y egress ALL_TRAFFIC para el conector VPC
+    // SOLUCIÓN DEFINITIVA: Limpiamos el vpcAccess del payload de actualización. 
+    // Como el UpdateMask solo modifica el min_instance_count, Cloud Run preservará 
+    // la configuración VPC real del servidor y evitará el error de validación gRPC.
     if (templateBuilder.hasVpcAccess()) {
-      VpcAccess vpcAccess = templateBuilder.getVpcAccess();
-      String connector = vpcAccess != null ? vpcAccess.getConnector() : null;
-      
-      if (connector != null && !connector.isEmpty()) {
-        String connectorName = connector.contains("/") ? connector.substring(connector.lastIndexOf('/') + 1) : connector;
-        String fullConnectorPath = String.format("projects/%s/locations/%s/connectors/%s", projectId, region, connectorName);
-        
-        VpcAccess.Builder vpcBuilder = vpcAccess.toBuilder()
-            .setConnector(fullConnectorPath)
-            .setEgress(VpcAccess.VpcAccessEgress.ALL_TRAFFIC);
-            
-        templateBuilder.setVpcAccess(vpcBuilder.build());
-      } else {
-        templateBuilder.clearVpcAccess();
-      }
+      templateBuilder.clearVpcAccess();
+  }
+
+    Service serviceToUpdate = 
+        currentService.toBuilder()
+            .setTemplate(templateBuilder)
+            .build();
+
+    FieldMask updateMask =
+        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
+
+    UpdateServiceRequest updateRequest =
+        UpdateServiceRequest.newBuilder()
+            .setService(serviceToUpdate)
+            .setUpdateMask(updateMask)
+            .build();
+
+    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
+    logCompletionAsync(resourceName, operation);
+    operation.getInitialFuture().get(); 
     }
 
     Service serviceToUpdate = 
