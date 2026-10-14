@@ -128,13 +128,21 @@ public class Scaler {
     for (Metric metric : scaledObjectMetrics.getMetricsList()) {
       int recommendation;
       if (metric.hasTargetAverageValue() && metric.getTargetAverageValue() > 0) {
-        recommendation =
-            TargetAverageValueScaling.makeRecommendation(
-                metric.getValue(), metric.getTargetAverageValue(), currentInstanceCount);
+        if (metric.getValue() <= metric.getTargetAverageValue()) {
+          recommendation = 0;
+        } else {
+          recommendation =
+              TargetAverageValueScaling.makeRecommendation(
+                  metric.getValue(), metric.getTargetAverageValue(), currentInstanceCount);
+        }
       } else if (metric.hasTargetValue() && metric.getTargetValue() > 0) {
-        recommendation =
-            TargetValueScaling.makeRecommendation(
-                metric.getValue(), metric.getTargetValue(), currentInstanceCount);
+        if (metric.getValue() <= metric.getTargetValue()) {
+          recommendation = 0;
+        } else {
+          recommendation =
+              TargetValueScaling.makeRecommendation(
+                  metric.getValue(), metric.getTargetValue(), currentInstanceCount);
+        }
       } else {
         logger.atWarning().log(
             "Target value and target average value for %s are 0. At least one must be a"
@@ -247,8 +255,6 @@ public class Scaler {
           throw new IOException(e);
         }
       } else {
-        // We should never realistically get here because we should have checked against this in
-        // the constructor.
         throw new IllegalArgumentException("Min instances are not supported for worker pools.");
       }
     } else {
@@ -294,7 +300,6 @@ public class Scaler {
       metricsService.writeMetricIgnoreFailure(
           REQUESTED_INSTANCE_COUNT_METRIC_NAME, (double) newInstanceCount, metricLabels);
     } catch (RuntimeException ex) {
-      // An exception here is not critical to scaling. Log the exception and continue.
       logger.atWarning().withCause(ex).log("Failed to write metrics to Cloud Monitoring.");
     }
   }
@@ -314,8 +319,6 @@ public class Scaler {
           metric.getValue(),
           metricLabels);
 
-      // metric either hasTargetAverageValue or hasTargetValue because of the one-of proto
-      // definition
       if (metric.hasTargetAverageValue()) {
         metricsService.writeMetricIgnoreFailure(
             metric.getTriggerType() + "/" + TARGET_AVERAGE_VALUE_METRIC_NAME,
@@ -328,7 +331,6 @@ public class Scaler {
             metricLabels);
       }
     } catch (RuntimeException ex) {
-      // An exception here is not critical to scaling. Log the exception and continue.
       logger.atWarning().withCause(ex).log("Failed to write metrics to Cloud Monitoring.");
     }
   }
