@@ -131,38 +131,33 @@ public class CloudRunClientWrapper {
   public void updateServiceMinInstances(
       String serviceName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException {
+    
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
-    Service currentService = getService(serviceName, projectId, region);
 
-    RevisionScaling.Builder scalingBuilder = currentService.hasTemplate() && currentService.getTemplate().hasScaling()
-        ? currentService.getTemplate().getScaling().toBuilder()
-        : RevisionScaling.newBuilder();
-
-    RevisionScaling newScaling = scalingBuilder.setMinInstanceCount(instances).build();
-
-    RevisionTemplate.Builder templateBuilder =
-        currentService.getTemplate().toBuilder().setScaling(newScaling);
-
-    // CORRECCIÓN VPC:
-    // Si vpcAccess está definido pero el conector no cumple con la ruta completa 
-    // ("projects/{project}/locations/{location}/connectors/{connector}"), se elimina vpcAccess 
-    // para evitar que la API v2 de Cloud Run lance la excepción INVALID_ARGUMENT.
-    if (templateBuilder.hasVpcAccess()) {
-      String connector = templateBuilder.getVpcAccess().getConnector();
-      if (connector.isEmpty() || !connector.startsWith("projects/") || !connector.contains("/connectors/")) {
-        templateBuilder.clearVpcAccess();
-      }
-    }
-
-    Service serviceToUpdate = 
-        Service.newBuilder()
-            .setName(currentService.getName())
-            .setTemplate(templateBuilder)
+    // 1. Crear únicamente la configuración de escalado deseada
+    RevisionScaling newScaling =
+        RevisionScaling.newBuilder()
+            .setMinInstanceCount(instances)
             .build();
 
+    // 2. Crear un RevisionTemplate limpio (sin heredar ni copiar vpcAccess ni otros metadatos)
+    RevisionTemplate templateToUpdate =
+        RevisionTemplate.newBuilder()
+            .setScaling(newScaling)
+            .build();
+
+    // 3. Crear el Service únicamente con su nombre de recurso y el template objetivo
+    Service serviceToUpdate =
+        Service.newBuilder()
+            .setName(resourceName)
+            .setTemplate(templateToUpdate)
+            .build();
+
+    // 4. Aplicar la máscara estricta para actualizar solo las instancias mínimas
     FieldMask updateMask =
         FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
 
+    // 5. Enviar la petición de actualización a Cloud Run
     UpdateServiceRequest updateRequest =
         UpdateServiceRequest.newBuilder()
             .setService(serviceToUpdate)
