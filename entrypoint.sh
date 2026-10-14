@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 set -e
 
 # Start the scaler server in the background
 java -jar /app/scaler_server.jar &
+
+# Wait for the Java gRPC server to be fully listening on port 50051
+echo "Waiting For gRPC on port 50051..."
+until (echo > /dev/tcp/127.0.0.1/50051) >/dev/null 2>&1; do
+  sleep 1
+done
 
 # Start the metric-provider in the foreground
 /app/metric-provider
