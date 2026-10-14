@@ -135,20 +135,37 @@ public class CloudRunClientWrapper {
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
     Service currentService = getService(serviceName, projectId, region);
 
-    RevisionScaling.Builder scalingBuilder = currentService.hasTemplate() && currentService.getTemplate().hasScaling()
-        ? currentService.getTemplate().getScaling().toBuilder()
-        : RevisionScaling.newBuilder();
+    // Creamos un nuevo escalado limpio solo con el minInstanceCount
+    RevisionScaling newScaling =
+        RevisionScaling.newBuilder().setMinInstanceCount(instances).build();
 
-    RevisionScaling newScaling = scalingBuilder.setMinInstanceCount(instances).build();
+    // Reconstruimos únicamente el template usando el escalado nuevo, 
+    // pero evitamos alterar el bloque vpcAccess para que la API conserve el valor actual sin romper el esquema.
+    RevisionTemplate.Builder templateBuilder = RevisionTemplate.newBuilder();
+    
+    if (currentService.hasTemplate()) {
+      templateBuilder.mergeFrom(currentService.getTemplate());
+    }
+    templateBuilder.setScaling(newScaling);
 
-    RevisionTemplate.Builder templateBuilder =
-        currentService.getTemplate().toBuilder().setScaling(newScaling);
+    Service serviceToUpdate = 
+        currentService.toBuilder()
+            .setTemplate(templateBuilder)
+            .build();
 
-    // SOLUCIÓN DEFINITIVA: Limpiamos el vpcAccess del payload de actualización. 
-    // Como el UpdateMask solo modifica el min_instance_count, Cloud Run preservará 
-    // la configuración VPC real del servidor y evitará el error de validación gRPC.
-    if (templateBuilder.hasVpcAccess()) {
-      templateBuilder.clearVpcAccess();
+    // El UpdateMask limita la operación estrictamente a las instancias mínimas
+    FieldMask updateMask =
+        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
+
+    UpdateServiceRequest updateRequest =
+        UpdateServiceRequest.newBuilder()
+            .setService(serviceToUpdate)
+            .setUpdateMask(updateMask)
+            .build();
+
+    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
+    logCompletionAsync(resourceName, operation);
+    operation.getInitialFuture().get(); 
   }
 
     Service serviceToUpdate = 
