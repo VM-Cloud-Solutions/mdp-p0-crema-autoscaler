@@ -30,6 +30,7 @@ import com.google.cloud.run.v2.ServiceScaling;
 import com.google.cloud.run.v2.ServicesClient;
 import com.google.cloud.run.v2.UpdateServiceRequest;
 import com.google.cloud.run.v2.UpdateWorkerPoolRequest;
+import com.google.cloud.run.v2.VpcAccess;
 import com.google.cloud.run.v2.WorkerPool;
 import com.google.cloud.run.v2.WorkerPoolName;
 import com.google.cloud.run.v2.WorkerPoolScaling;
@@ -141,57 +142,95 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
-    // IMPRESIÓN DEL VALOR DE VPC CONNECTOR EN LOS LOGS
-    try {
-      Service currentService = getService(serviceName, projectId, region);
-      if (currentService.hasTemplate() && currentService.getTemplate().hasVpcAccess()) {
-        String currentConnector = currentService.getTemplate().getVpcAccess().getConnector();
-        logger.atInfo()
-            .with(RESOURCE, resourceName)
-            .log("VALOR RECHAZADO/ACTUAL DE VPC CONNECTOR: '%s'", currentConnector);
-      } else {
-        logger.atInfo()
-            .with(RESOURCE, resourceName)
-            .log("El servicio objetivo no tiene un objeto vpcAccess explícito en el template.");
+    // 1. Obtener la configuracion actual para extraer el nombre corto del conector
+    Service currentService = getService(serviceName, projectId, region);
+    String rawConnectorName = "mdp-dev-connector-2"; // Valor predeterminado de respaldo
+
+    if (currentService.hasTemplate() && currentService.getTemplate().hasVpcAccess()) {
+      String connectorFromGcp = currentService.getTemplate().getVpcAccess().getConnector();
+      if (!connectorFromGcp.isEmpty()) {
+        // Extraer unicamente el nombre corto del conector si viene con ruta parcial
+        rawConnectorName = connectorFromGcp.substring(connectorFromGcp.lastIndexOf('/') + 1);
       }
-    } catch (Exception e) {
-      logger.atWarning()
-          .with(RESOURCE, resourceName)
-          .log("No se pudo inspeccionar el conector VPC previo: %s", e.getMessage());
     }
 
-    RevisionScaling newScaling =
-        RevisionScaling.newBuilder()
-            .setMinInstanceCount(instances)
-            .build();
+    // 2. Construir el ID del conector con la URI canonica requerida por GCP v2 API:
+    // projects/{project}/locations/{location}/connectors/{connector}
+    String fullConnectorUri = String.format(
+        "projects/%s/locations/%s/connectors/%s",
+        projectId, region, rawConnectorName);
 
-    RevisionTemplate templateToUpdate =
-        RevisionTemplate.newBuilder()
-            .setScaling(newScaling)
-            .build();
+    // 3. Crear el objeto VpcAccess con el conector en formato correcto y EGRESS = ALL_TRAFFIC
+    VpcAccess vpcAccess = VpcAccess.newBuilder()
+        .setConnector(fullConnectorUri)
+        .setEgress(VpcAccess.VpcEgress.ALL_TRAFFIC)
+        .build();
 
-    Service serviceToUpdate =
-        Service.newBuilder()
-            .setName(resourceName)
-            .setTemplate(templateToUpdate)
-            .build();
+    // 4. Crear la configuracion de escalado
+    RevisionScaling newScaling = RevisionScaling.newBuilder()
+        .setMinInstanceCount(instances)
+        .build();
 
-    FieldMask updateMask =
-        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
+    // 5. Construir el RevisionTemplate objetivo
+    RevisionTemplate.Builder templateBuilder = currentService.hasTemplate()
+        ? currentService.getTemplate().toBuilder()
+        : RevisionTemplate.newBuilder();
 
-    UpdateServiceRequest updateRequest =
-        UpdateServiceRequest.newBuilder()
-            .setService(serviceToUpdate)
-            .setUpdateMask(updateMask)
-            .build();
+    templateBuilder.setScaling(newScaling);
+    templateBuilder.setVpcAccess(vpcAccess);
 
-    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
-    logCompletionAsync(resourceName, operation);
+    Service serviceToUpdate = Service.newBuilder()
+        .setName(resourceName)
+        .setTemplate(templateBuilder.build())
+        .build();
 
+    // 6. Configurar la mascara de actualizacion para scaling y vpc_access
+    FieldMask updateMask = FieldMask.newBuilder()
+        .addPaths("template.scaling.min_instance_count")
+        .addPaths("template.vpc_access")
+        .build();
+
+    UpdateServiceRequest updateRequest = UpdateServiceRequest.newBuilder()
+        .setService(serviceToUpdate)
+        .setUpdateMask(updateMask)
+        .build();
+
+    // 7. Log detallado de la PETICION (REQUEST)
+    logger.atInfo()
+        .with(RESOURCE, resourceName)
+        .log("ENVIANDO UPDATE REQUEST:\n- Target Resource: %s\n- Min Instances: %d\n- VPC Connector: %s\n- VPC Egress: %s\n- Update Mask: %s",
+            resourceName, instances, fullConnectorUri, VpcAccess.VpcEgress.ALL_TRAFFIC, updateMask.getPathsList());
+
+    // 8. Ejecutar la peticion y procesar la RESPUESTA (RESPONSE)
     try {
-      operation.getInitialFuture().get();
-    } catch (Exception e) {
-      // Excepción capturada para no interrumpir el flujo de la aplicación
+      OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
+      logCompletionAsync(resourceName, operation);
+
+      // Esperar a que complete la operacion inicial y obtener el servicio actualizado
+      Service responseService = operation.getInitialFuture().get();
+
+      // Log detallado de la RESPUESTA (RESPONSE)
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("RESPUESTA EXITOSA DE GCP CLOUD RUN:\n- Service Name: %s\n- Updated Min Instances: %d\n- Applied VPC Connector: %s\n- Applied VPC Egress: %s",
+              responseService.getName(),
+              responseService.getTemplate().getScaling().getMinInstanceCount(),
+              responseService.getTemplate().getVpcAccess().getConnector(),
+              responseService.getTemplate().getVpcAccess().getEgress());
+
+    } catch (ExecutionException e) {
+      logger.atSevere()
+          .withCause(e)
+          .with(RESOURCE, resourceName)
+          .log("ERROR CRITICO AL ACTUALIZAR EL SERVICIO EN GCP: %s", e.getMessage());
+      throw e;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      logger.atSevere()
+          .withCause(e)
+          .with(RESOURCE, resourceName)
+          .log("LA OPERACION DE ESCALADO FUE INTERRUMPIDA: %s", e.getMessage());
+      throw e;
     }
   }
 
@@ -209,14 +248,14 @@ public class CloudRunClientWrapper {
           public void onSuccess(T result) {
             logger.atInfo()
                 .with(RESOURCE, resourceName)
-                .log("Update operation for %s completed", resourceName);
+                .log("Operacion de actualizacion completada exitosamente para %s", resourceName);
           }
 
           @Override
           public void onFailure(Throwable t) {
-            logger.atInfo()
+            logger.atWarning()
                 .with(RESOURCE, resourceName)
-                .log("Update operation request sent for %s", resourceName);
+                .log("Notificacion de fallo asincrono para %s: %s", resourceName, t.getMessage());
           }
         },
         MoreExecutors.directExecutor());
