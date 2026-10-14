@@ -1,20 +1,15 @@
 /*
- * Copyright 2025 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
-
+Copyright 2025 Google LLC
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+ http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package com.google.cloud.run.crema.clients;
 
 import com.google.api.core.ApiFutureCallback;
@@ -30,7 +25,6 @@ import com.google.cloud.run.v2.ServiceScaling;
 import com.google.cloud.run.v2.ServicesClient;
 import com.google.cloud.run.v2.UpdateServiceRequest;
 import com.google.cloud.run.v2.UpdateWorkerPoolRequest;
-import com.google.cloud.run.v2.VpcAccess;
 import com.google.cloud.run.v2.WorkerPool;
 import com.google.cloud.run.v2.WorkerPoolName;
 import com.google.cloud.run.v2.WorkerPoolScaling;
@@ -40,13 +34,13 @@ import com.google.common.flogger.MetadataKey;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.FieldMask;
 import com.google.protobuf.Timestamp;
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.concurrent.ExecutionException;
 
 public class CloudRunClientWrapper {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
-
   private static final MetadataKey<String> RESOURCE = MetadataKey.single("resource", String.class);
 
   private final ServicesClient servicesClient;
@@ -85,38 +79,30 @@ public class CloudRunClientWrapper {
       throws ExecutionException, InterruptedException {
     String resourceName = WorkerPoolName.of(projectId, region, workerpoolName).toString();
     WorkerPool currentWorkerPool = getWorkerPool(workerpoolName, projectId, region);
-
     WorkerPoolScaling newScaling =
         WorkerPoolScaling.newBuilder().setManualInstanceCount(instances).build();
-
     WorkerPool workerPoolToUpdate = currentWorkerPool.toBuilder().setScaling(newScaling).build();
-
     FieldMask updateMask = FieldMask.newBuilder().addPaths("scaling.manual_instance_count").build();
-
     UpdateWorkerPoolRequest updateRequest =
         UpdateWorkerPoolRequest.newBuilder()
             .setWorkerPool(workerPoolToUpdate)
             .setUpdateMask(updateMask)
             .build();
-
     OperationFuture<WorkerPool, WorkerPool> operation =
         workerPoolsClient.updateWorkerPoolAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
+    operation.getInitialFuture().get();
   }
 
   public int getServiceInstanceCount(String serviceName, String projectId, String region) {
     Service service = getService(serviceName, projectId, region);
-    
     if (service.hasTemplate() && service.getTemplate().hasScaling()) {
       return service.getTemplate().getScaling().getMinInstanceCount();
     }
-    
     if (service.hasScaling()
         && service.getScaling().getScalingMode() == ServiceScaling.ScalingMode.MANUAL) {
       return service.getScaling().getManualInstanceCount();
     }
-    
     return 0;
   }
 
@@ -134,76 +120,35 @@ public class CloudRunClientWrapper {
       throws ExecutionException, InterruptedException {
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
     Service currentService = getService(serviceName, projectId, region);
-
+    
     // Creamos un nuevo escalado limpio solo con el minInstanceCount
     RevisionScaling newScaling =
         RevisionScaling.newBuilder().setMinInstanceCount(instances).build();
-
+    
     // Reconstruimos únicamente el template usando el escalado nuevo, 
     // pero evitamos alterar el bloque vpcAccess para que la API conserve el valor actual sin romper el esquema.
     RevisionTemplate.Builder templateBuilder = RevisionTemplate.newBuilder();
-    
     if (currentService.hasTemplate()) {
       templateBuilder.mergeFrom(currentService.getTemplate());
     }
     templateBuilder.setScaling(newScaling);
-
+    
     Service serviceToUpdate = 
         currentService.toBuilder()
             .setTemplate(templateBuilder)
             .build();
-
+    
     // El UpdateMask limita la operación estrictamente a las instancias mínimas
     FieldMask updateMask =
         FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
-
     UpdateServiceRequest updateRequest =
         UpdateServiceRequest.newBuilder()
             .setService(serviceToUpdate)
             .setUpdateMask(updateMask)
             .build();
-
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
-  }
-
-    Service serviceToUpdate = 
-        currentService.toBuilder()
-            .setTemplate(templateBuilder)
-            .build();
-
-    FieldMask updateMask =
-        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
-
-    UpdateServiceRequest updateRequest =
-        UpdateServiceRequest.newBuilder()
-            .setService(serviceToUpdate)
-            .setUpdateMask(updateMask)
-            .build();
-
-    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
-    logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
-    }
-
-    Service serviceToUpdate = 
-        currentService.toBuilder()
-            .setTemplate(templateBuilder)
-            .build();
-
-    FieldMask updateMask =
-        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
-
-    UpdateServiceRequest updateRequest =
-        UpdateServiceRequest.newBuilder()
-            .setService(serviceToUpdate)
-            .setUpdateMask(updateMask)
-            .build();
-
-    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
-    logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
+    operation.getInitialFuture().get();
   }
 
   public void updateServiceManualInstances(
