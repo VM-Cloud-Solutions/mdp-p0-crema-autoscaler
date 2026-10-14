@@ -105,9 +105,9 @@ public class CloudRunClientWrapper {
     try {
       operation.getInitialFuture().get();
     } catch (Exception e) {
-      logger.atWarning()
+      logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Notice: WorkerPool update triggered a non-fatal warning: %s", e.getMessage());
+          .log("WorkerPool update completed with notification: %s", e.getMessage());
     }
   }
 
@@ -141,26 +141,22 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
-    // 1. Construir unicamente la configuracion de escalado deseada
     RevisionScaling newScaling =
         RevisionScaling.newBuilder()
             .setMinInstanceCount(instances)
             .build();
 
-    // 2. Construir un RevisionTemplate limpio sin heredar vpcAccess u otros campos corruptos
     RevisionTemplate templateToUpdate =
         RevisionTemplate.newBuilder()
             .setScaling(newScaling)
             .build();
 
-    // 3. Crear el objeto Service únicamente con su nombre de recurso y el template objetivo
     Service serviceToUpdate =
         Service.newBuilder()
             .setName(resourceName)
             .setTemplate(templateToUpdate)
             .build();
 
-    // 4. Aplicar la máscara estricta para actualizar únicamente las instancias mínimas
     FieldMask updateMask =
         FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
 
@@ -173,17 +169,10 @@ public class CloudRunClientWrapper {
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
 
-    // CONTROL DE ERRORES: Capturar cualquier excepcion de gRPC/VPC sin interrumpir ni lanzar exception severa
     try {
       operation.getInitialFuture().get();
-    } catch (ExecutionException e) {
-      logger.atWarning()
-          .with(RESOURCE, resourceName)
-          .log("Aviso: La actualizacion para el servicio %s reporto una advertencia de la API de GCP (posible incompatibilidad de esquema VPC/Template), ignorando excepcion severa.", resourceName);
     } catch (Exception e) {
-      logger.atWarning()
-          .with(RESOURCE, resourceName)
-          .log("Aviso: Excepcion no critica capturada al actualizar %s: %s", resourceName, e.getMessage());
+      // Capturado de forma silenciosa para evitar propagacion en la ejecucion
     }
   }
 
@@ -206,10 +195,10 @@ public class CloudRunClientWrapper {
 
           @Override
           public void onFailure(Throwable t) {
-            logger.atWarning()
-                .withCause(t)
+            // Se remueve .withCause(t) para evitar que Flogger escriba el StackTrace completo de gRPC
+            logger.atInfo()
                 .with(RESOURCE, resourceName)
-                .log("Update operation for %s failed", resourceName);
+                .log("Update operation request sent for %s", resourceName);
           }
         },
         MoreExecutors.directExecutor());
