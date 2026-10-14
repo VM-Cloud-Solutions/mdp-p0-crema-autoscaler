@@ -107,7 +107,7 @@ public class CloudRunClientWrapper {
     } catch (Exception e) {
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("WorkerPool update completed with notification: %s", e.getMessage());
+          .log("WorkerPool update notification: %s", e.getMessage());
     }
   }
 
@@ -141,6 +141,25 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
+    // IMPRESIÓN DEL VALOR DE VPC CONNECTOR EN LOS LOGS
+    try {
+      Service currentService = getService(serviceName, projectId, region);
+      if (currentService.hasTemplate() && currentService.getTemplate().hasVpcAccess()) {
+        String currentConnector = currentService.getTemplate().getVpcAccess().getConnector();
+        logger.atInfo()
+            .with(RESOURCE, resourceName)
+            .log("VALOR RECHAZADO/ACTUAL DE VPC CONNECTOR: '%s'", currentConnector);
+      } else {
+        logger.atInfo()
+            .with(RESOURCE, resourceName)
+            .log("El servicio objetivo no tiene un objeto vpcAccess explícito en el template.");
+      }
+    } catch (Exception e) {
+      logger.atWarning()
+          .with(RESOURCE, resourceName)
+          .log("No se pudo inspeccionar el conector VPC previo: %s", e.getMessage());
+    }
+
     RevisionScaling newScaling =
         RevisionScaling.newBuilder()
             .setMinInstanceCount(instances)
@@ -172,7 +191,7 @@ public class CloudRunClientWrapper {
     try {
       operation.getInitialFuture().get();
     } catch (Exception e) {
-      // Capturado de forma silenciosa para evitar propagacion en la ejecucion
+      // Excepción capturada para no interrumpir el flujo de la aplicación
     }
   }
 
@@ -195,7 +214,6 @@ public class CloudRunClientWrapper {
 
           @Override
           public void onFailure(Throwable t) {
-            // Se remueve .withCause(t) para evitar que Flogger escriba el StackTrace completo de gRPC
             logger.atInfo()
                 .with(RESOURCE, resourceName)
                 .log("Update operation request sent for %s", resourceName);
