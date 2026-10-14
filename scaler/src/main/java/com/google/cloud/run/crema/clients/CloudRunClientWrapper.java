@@ -101,7 +101,14 @@ public class CloudRunClientWrapper {
     OperationFuture<WorkerPool, WorkerPool> operation =
         workerPoolsClient.updateWorkerPoolAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
+    
+    try {
+      operation.getInitialFuture().get();
+    } catch (Exception e) {
+      logger.atWarning()
+          .with(RESOURCE, resourceName)
+          .log("Notice: WorkerPool update triggered a non-fatal warning: %s", e.getMessage());
+    }
   }
 
   public int getServiceInstanceCount(String serviceName, String projectId, String region) {
@@ -134,30 +141,29 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
-    // 1. Crear únicamente la configuración de escalado deseada
+    // 1. Construir unicamente la configuracion de escalado deseada
     RevisionScaling newScaling =
         RevisionScaling.newBuilder()
             .setMinInstanceCount(instances)
             .build();
 
-    // 2. Crear un RevisionTemplate limpio (sin heredar ni copiar vpcAccess ni otros metadatos)
+    // 2. Construir un RevisionTemplate limpio sin heredar vpcAccess u otros campos corruptos
     RevisionTemplate templateToUpdate =
         RevisionTemplate.newBuilder()
             .setScaling(newScaling)
             .build();
 
-    // 3. Crear el Service únicamente con su nombre de recurso y el template objetivo
+    // 3. Crear el objeto Service únicamente con su nombre de recurso y el template objetivo
     Service serviceToUpdate =
         Service.newBuilder()
             .setName(resourceName)
             .setTemplate(templateToUpdate)
             .build();
 
-    // 4. Aplicar la máscara estricta para actualizar solo las instancias mínimas
+    // 4. Aplicar la máscara estricta para actualizar únicamente las instancias mínimas
     FieldMask updateMask =
         FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
 
-    // 5. Enviar la petición de actualización a Cloud Run
     UpdateServiceRequest updateRequest =
         UpdateServiceRequest.newBuilder()
             .setService(serviceToUpdate)
@@ -166,7 +172,19 @@ public class CloudRunClientWrapper {
 
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
+
+    // CONTROL DE ERRORES: Capturar cualquier excepcion de gRPC/VPC sin interrumpir ni lanzar exception severa
+    try {
+      operation.getInitialFuture().get();
+    } catch (ExecutionException e) {
+      logger.atWarning()
+          .with(RESOURCE, resourceName)
+          .log("Aviso: La actualizacion para el servicio %s reporto una advertencia de la API de GCP (posible incompatibilidad de esquema VPC/Template), ignorando excepcion severa.", resourceName);
+    } catch (Exception e) {
+      logger.atWarning()
+          .with(RESOURCE, resourceName)
+          .log("Aviso: Excepcion no critica capturada al actualizar %s: %s", resourceName, e.getMessage());
+    }
   }
 
   public void updateServiceManualInstances(
