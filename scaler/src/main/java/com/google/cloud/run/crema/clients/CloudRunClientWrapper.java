@@ -134,19 +134,19 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
-    // 1. Construir la configuracion de escalado únicamente con minInstanceCount
+    // 1. Construir la configuracion de escalado unicamente con minInstanceCount
     RevisionScaling newScaling =
         RevisionScaling.newBuilder()
             .setMinInstanceCount(instances)
             .build();
 
-    // 2. Crear una plantilla limpia dedicada exclusivamente al escalado (sin datos de VPC/Network)
+    // 2. Crear una plantilla limpia dedicada exclusivamente al escalado (sin datos de VPC, contenedores ni red)
     RevisionTemplate templateToUpdate =
         RevisionTemplate.newBuilder()
             .setScaling(newScaling)
             .build();
 
-    // 3. Crear el objeto Service únicamente con el nombre de recurso y la plantilla de escalado
+    // 3. Crear el objeto Service unicamente con el nombre de recurso y la plantilla de escalado
     Service serviceToUpdate =
         Service.newBuilder()
             .setName(resourceName)
@@ -155,24 +155,32 @@ public class CloudRunClientWrapper {
 
     // 4. Mascara de actualizacion estricta dedicada exclusivamente a template.scaling.min_instance_count
     FieldMask updateMask =
-        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
+        FieldMask.newBuilder()
+            .addPaths("template.scaling.min_instance_count")
+            .build();
 
-    // 5. Enviar la peticion de actualizacion a Cloud Run v2
+    // 5. Construir el Request
     UpdateServiceRequest updateRequest =
         UpdateServiceRequest.newBuilder()
             .setService(serviceToUpdate)
             .setUpdateMask(updateMask)
             .build();
 
+    // Imprimir toda la informacion del Request en logs
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("Enviando UpdateServiceRequest para %s -> min_instances: %d", resourceName, instances);
+        .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
 
+    // 6. Enviar la peticion de actualizacion a Cloud Run v2
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
 
-    // Esperar confirmacion de ejecucion
-    operation.getInitialFuture().get();
+    // 7. Esperar respuesta inicial e imprimir la respuesta devuelta por la API en logs
+    Service responseService = operation.getInitialFuture().get();
+
+    logger.atInfo()
+        .with(RESOURCE, resourceName)
+        .log("RESPUESTA API Cloud Run (Service tras Update):\n%s", responseService.toString());
   }
 
   public void updateServiceManualInstances(
