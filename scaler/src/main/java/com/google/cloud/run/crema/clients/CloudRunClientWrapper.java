@@ -106,6 +106,28 @@ public class CloudRunClientWrapper {
   }
 
   /**
+   * Método requerido por InstanceCountProvider.java para obtener las instancias configuradas.
+   */
+  public int getServiceInstanceCount(String serviceName, String projectId, String region) {
+    return getServiceMinParam(serviceName, projectId, region);
+  }
+
+  /**
+   * Método requerido por InstanceCountProvider.java para Worker Pools.
+   */
+  public int getWorkerPoolInstanceCount(String workerpoolName, String projectId, String region) {
+    return 0;
+  }
+
+  public Instant getServiceLastDeploymentTime(String serviceName, String projectId, String region) {
+    return Instant.EPOCH;
+  }
+
+  public Instant getWorkerPoolLastDeploymentTime(String workerpoolName, String projectId, String region) {
+    return Instant.EPOCH;
+  }
+
+  /**
    * Compara la cantidad de instancias recomendadas contra el valor real de --min en Cloud Run.
    * Si NO son iguales, aplica el valor recomendado y envía la orden a Pub/Sub.
    */
