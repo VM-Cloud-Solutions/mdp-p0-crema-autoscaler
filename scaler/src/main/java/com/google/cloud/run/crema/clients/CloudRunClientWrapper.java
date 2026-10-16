@@ -140,13 +140,13 @@ public class CloudRunClientWrapper {
             .setMinInstanceCount(instances)
             .build();
 
-    // 2. Crear una plantilla limpia dedicada exclusivamente al escalado (sin datos de VPC, contenedores ni red)
+    // 2. Crear una plantilla limpia dedicada exclusivamente al escalado (sin datos adicionales)
     RevisionTemplate templateToUpdate =
         RevisionTemplate.newBuilder()
             .setScaling(newScaling)
             .build();
 
-    // 3. Crear el objeto Service unicamente con el nombre de recurso y la plantilla de escalado
+    // 3. Crear el objeto Service únicamente con el nombre de recurso y la plantilla de escalado
     Service serviceToUpdate =
         Service.newBuilder()
             .setName(resourceName)
@@ -155,9 +155,7 @@ public class CloudRunClientWrapper {
 
     // 4. Mascara de actualizacion estricta dedicada exclusivamente a template.scaling.min_instance_count
     FieldMask updateMask =
-        FieldMask.newBuilder()
-            .addPaths("template.scaling.min_instance_count")
-            .build();
+        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
 
     // 5. Construir el Request
     UpdateServiceRequest updateRequest =
@@ -166,7 +164,6 @@ public class CloudRunClientWrapper {
             .setUpdateMask(updateMask)
             .build();
 
-    // Imprimir toda la informacion del Request en logs
     logger.atInfo()
         .with(RESOURCE, resourceName)
         .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
@@ -175,8 +172,8 @@ public class CloudRunClientWrapper {
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
 
-    // 7. Esperar respuesta inicial e imprimir la respuesta devuelta por la API en logs
-    Service responseService = operation.getInitialFuture().get();
+    // 7. Esperar a que la operacion asincrona finalice para obtener el objeto Service resultante
+    Service responseService = operation.get();
 
     logger.atInfo()
         .with(RESOURCE, resourceName)
