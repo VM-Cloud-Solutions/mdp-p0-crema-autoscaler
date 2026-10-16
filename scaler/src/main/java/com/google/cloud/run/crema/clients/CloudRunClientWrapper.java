@@ -17,208 +17,76 @@
 
 package com.google.cloud.run.crema.clients;
 
-import com.google.api.core.ApiFutureCallback;
-import com.google.api.core.ApiFutures;
-import com.google.api.gax.longrunning.OperationFuture;
-import com.google.cloud.run.v2.GetServiceRequest;
-import com.google.cloud.run.v2.GetWorkerPoolRequest;
-import com.google.cloud.run.v2.Service;
-import com.google.cloud.run.v2.ServiceName;
-import com.google.cloud.run.v2.ServiceScaling;
-import com.google.cloud.run.v2.ServicesClient;
-import com.google.cloud.run.v2.UpdateServiceRequest;
-import com.google.cloud.run.v2.UpdateWorkerPoolRequest;
-import com.google.cloud.run.v2.WorkerPool;
-import com.google.cloud.run.v2.WorkerPoolName;
-import com.google.cloud.run.v2.WorkerPoolScaling;
-import com.google.cloud.run.v2.WorkerPoolsClient;
+import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.flogger.FluentLogger;
 import com.google.common.flogger.MetadataKey;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.protobuf.FieldMask;
-import com.google.protobuf.Timestamp;
+import com.google.protobuf.ByteString;
+import com.google.pubsub.v1.PubsubMessage;
+import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
-import java.time.Instant;
 import java.util.concurrent.ExecutionException;
 
 public class CloudRunClientWrapper {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
-
   private static final MetadataKey<String> RESOURCE = MetadataKey.single("resource", String.class);
 
-  private final ServicesClient servicesClient;
-  private final WorkerPoolsClient workerPoolsClient;
+  private final String pubSubTopic;
 
-  public CloudRunClientWrapper() throws IOException {
-    this.servicesClient = ServicesClient.create();
-    this.workerPoolsClient = WorkerPoolsClient.create();
+  /**
+   * Constructor por defecto: Obtiene el tópico de la variable de entorno PUB_SUB_TOPIC.
+   */
+  public CloudRunClientWrapper() {
+    this.pubSubTopic = System.getenv().getOrDefault("PUB_SUB_TOPIC", "cloud-run-scaler-topic");
   }
 
-  public CloudRunClientWrapper(ServicesClient servicesClient, WorkerPoolsClient workerPoolsClient) {
-    this.servicesClient = servicesClient;
-    this.workerPoolsClient = workerPoolsClient;
+  /**
+   * Constructor que permite inyectar explícitamente el valor leído del YAML.
+   */
+  public CloudRunClientWrapper(String pubSubTopic) {
+    this.pubSubTopic = (pubSubTopic != null && !pubSubTopic.isEmpty())
+        ? pubSubTopic
+        : System.getenv().getOrDefault("PUB_SUB_TOPIC", "cloud-run-scaler-topic");
   }
 
-  public int getWorkerPoolInstanceCount(String workerpoolName, String projectId, String region) {
-    WorkerPool workerpool = getWorkerPool(workerpoolName, projectId, region);
-    if (workerpool.hasScaling()) {
-      return workerpool.getScaling().getManualInstanceCount();
-    }
-    return 0;
-  }
-
-  public Instant getWorkerPoolLastDeploymentTime(
-      String workerpoolName, String projectId, String region) {
-    WorkerPool workerpool = getWorkerPool(workerpoolName, projectId, region);
-    if (workerpool.hasUpdateTime()) {
-      Timestamp updateTime = workerpool.getUpdateTime();
-      return Instant.ofEpochSecond(updateTime.getSeconds(), updateTime.getNanos());
-    }
-    return Instant.EPOCH;
-  }
-
-  public void updateWorkerPoolManualInstances(
-      String workerpoolName, int instances, String projectId, String region)
-      throws ExecutionException, InterruptedException {
-    String resourceName = WorkerPoolName.of(projectId, region, workerpoolName).toString();
-    WorkerPool currentWorkerPool = getWorkerPool(workerpoolName, projectId, region);
-
-    WorkerPoolScaling newScaling =
-        WorkerPoolScaling.newBuilder().setManualInstanceCount(instances).build();
-
-    WorkerPool workerPoolToUpdate = currentWorkerPool.toBuilder().setScaling(newScaling).build();
-
-    FieldMask updateMask = FieldMask.newBuilder().addPaths("scaling.manual_instance_count").build();
-
-    UpdateWorkerPoolRequest updateRequest =
-        UpdateWorkerPoolRequest.newBuilder()
-            .setWorkerPool(workerPoolToUpdate)
-            .setUpdateMask(updateMask)
-            .build();
-
-    OperationFuture<WorkerPool, WorkerPool> operation =
-        workerPoolsClient.updateWorkerPoolAsync(updateRequest);
-    logCompletionAsync(resourceName, operation);
-    operation.getInitialFuture().get(); 
-  }
-
-  public int getServiceInstanceCount(String serviceName, String projectId, String region) {
-    Service service = getService(serviceName, projectId, region);
-    
-    if (service.hasScaling()) {
-      return service.getScaling().getMinInstanceCount();
-    }
-    
-    if (service.hasTemplate() && service.getTemplate().hasScaling()) {
-      return service.getTemplate().getScaling().getMinInstanceCount();
-    }
-    
-    return 0;
-  }
-
-  public Instant getServiceLastDeploymentTime(String serviceName, String projectId, String region) {
-    Service service = getService(serviceName, projectId, region);
-    if (service.hasUpdateTime()) {
-      Timestamp updateTime = service.getUpdateTime();
-      return Instant.ofEpochSecond(updateTime.getSeconds(), updateTime.getNanos());
-    }
-    return Instant.EPOCH;
-  }
-
+  /**
+   * Publica el mensaje con el min_instances y la información del servicio hacia Pub/Sub.
+   */
   public void updateServiceMinInstances(
       String serviceName, int instances, String projectId, String region)
-      throws ExecutionException, InterruptedException {
-    
-    String resourceName = ServiceName.of(projectId, region, serviceName).toString();
+      throws ExecutionException, InterruptedException, IOException {
 
-    // 1. Configurar el bloque de escalado directo en la raíz del servicio (Equivalente a --min)
-    ServiceScaling serviceScaling = ServiceScaling.newBuilder()
-        .setMinInstanceCount(instances)
-        .build();
+    String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+    TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
+    Publisher publisher = null;
 
-    // 2. Construir el objeto Service únicamente con el nombre y la sección de escalado directo
-    Service serviceToUpdate = Service.newBuilder()
-        .setName(resourceName)
-        .setScaling(serviceScaling)
-        .build();
+    try {
+      publisher = Publisher.newBuilder(topicName).build();
 
-    // 3. Mascara de actualizacion enfocada estrictamente en 'scaling.min_instance_count' (nivel servicio)
-    FieldMask updateMask = FieldMask.newBuilder()
-        .addPaths("scaling.min_instance_count")
-        .build();
+      String jsonPayload = String.format(
+          "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min_instances\":\"%d\"}",
+          serviceName, projectId, region, instances
+      );
 
-    // 4. Construir el UpdateServiceRequest
-    UpdateServiceRequest updateRequest = UpdateServiceRequest.newBuilder()
-        .setService(serviceToUpdate)
-        .setUpdateMask(updateMask)
-        .build();
+      PubsubMessage pubsubMessage = PubsubMessage.newBuilder()
+          .setData(ByteString.copyFromUtf8(jsonPayload))
+          .build();
 
-    // --- LOGS DEL REQUEST (Pausados) ---
-    // logger.atInfo()
-    //     .with(RESOURCE, resourceName)
-    //     .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
+      publisher.publish(pubsubMessage).get();
 
-    logger.atInfo()
-        .with(RESOURCE, resourceName)
-        .log("Enviando UpdateServiceRequest (--min) para %s -> min_instances: %d", resourceName, instances);
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("Órden de escalado enviada a Pub/Sub (%s) para %s -> --min=%d", this.pubSubTopic, resourceName, instances);
 
-    // 5. Enviar la peticion de actualizacion a Cloud Run v2
-    OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
-    logCompletionAsync(resourceName, operation);
-
-    // 6. Esperar la resolucion de la operacion
-    Service responseService = operation.get();
-
-    // --- LOGS DE LA RESPUESTA (Pausados) ---
-    // logger.atInfo()
-    //     .with(RESOURCE, resourceName)
-    //     .log("RESPUESTA API Cloud Run (Service tras Update):\n%s", responseService.toString());
-
-    logger.atInfo()
-        .with(RESOURCE, resourceName)
-        .log("Servicio %s actualizado exitosamente tras el escalado (--min)", resourceName);
+    } finally {
+      if (publisher != null) {
+        publisher.shutdown();
+      }
+    }
   }
 
   public void updateServiceManualInstances(
       String serviceName, int instances, String projectId, String region)
-      throws ExecutionException, InterruptedException {
+      throws ExecutionException, InterruptedException, IOException {
     updateServiceMinInstances(serviceName, instances, projectId, region);
-  }
-
-  private <T> void logCompletionAsync(String resourceName, OperationFuture<T, ?> operation) {
-    ApiFutures.addCallback(
-        operation,
-        new ApiFutureCallback<T>() {
-          @Override
-          public void onSuccess(T result) {
-            logger.atInfo()
-                .with(RESOURCE, resourceName)
-                .log("Update operation for %s completed", resourceName);
-          }
-
-          @Override
-          public void onFailure(Throwable t) {
-            logger.atWarning()
-                .withCause(t)
-                .with(RESOURCE, resourceName)
-                .log("Update operation for %s failed", resourceName);
-          }
-        },
-        MoreExecutors.directExecutor());
-  }
-
-  private WorkerPool getWorkerPool(String workerpoolName, String projectId, String region) {
-    WorkerPoolName name = WorkerPoolName.of(projectId, region, workerpoolName);
-    GetWorkerPoolRequest request =
-        GetWorkerPoolRequest.newBuilder().setName(name.toString()).build();
-    WorkerPool workerPool = workerPoolsClient.getWorkerPool(request);
-    return workerPool;
-  }
-
-  private Service getService(String serviceName, String projectId, String region) {
-    ServiceName name = ServiceName.of(projectId, region, serviceName);
-    GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
-    Service service = servicesClient.getService(getRequest);
-    return service;
   }
 }
