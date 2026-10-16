@@ -24,6 +24,7 @@ import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.concurrent.ExecutionException;
 
 public class CloudRunClientWrapper {
@@ -46,6 +47,22 @@ public class CloudRunClientWrapper {
     this.pubSubTopic = (pubSubTopic != null && !pubSubTopic.isEmpty())
         ? pubSubTopic
         : System.getenv().getOrDefault("PUB_SUB_TOPIC", "cloud-run-scaler-topic");
+  }
+
+  public int getServiceInstanceCount(String projectId, String region, String serviceName) {
+    return 0;
+  }
+
+  public int getWorkerPoolInstanceCount(String projectId, String region, String workerpoolName) {
+    return 0;
+  }
+
+  public Instant getServiceLastDeploymentTime(String serviceName, String projectId, String region) {
+    return Instant.EPOCH;
+  }
+
+  public Instant getWorkerPoolLastDeploymentTime(String workerpoolName, String projectId, String region) {
+    return Instant.EPOCH;
   }
 
   /**
