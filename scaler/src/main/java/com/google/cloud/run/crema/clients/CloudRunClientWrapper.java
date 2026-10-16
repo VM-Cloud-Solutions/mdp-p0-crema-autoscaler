@@ -164,9 +164,14 @@ public class CloudRunClientWrapper {
             .setUpdateMask(updateMask)
             .build();
 
+    // Descomentar si hay dificultades con el escalamiento/Desecalamiento
+    // logger.atInfo()
+    //     .with(RESOURCE, resourceName)
+    //     .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
+
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
+        .log("Enviando UpdateServiceRequest para %s -> min_instances: %d", resourceName, instances);
 
     // 6. Enviar la peticion de actualizacion a Cloud Run v2
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
@@ -175,9 +180,14 @@ public class CloudRunClientWrapper {
     // 7. Esperar a que la operacion asincrona finalice para obtener el objeto Service resultante
     Service responseService = operation.get();
 
+    // Descomentar si hay dificultades con el escalamiento/Desecalamiento        
+    // logger.atInfo()
+    //     .with(RESOURCE, resourceName)
+    //     .log("RESPUESTA API Cloud Run (Service tras Update):\n%s", responseService.toString());
+
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("RESPUESTA API Cloud Run (Service tras Update):\n%s", responseService.toString());
+        .log("Servicio %s actualizado exitosamente tras el escalado", resourceName);
   }
 
   public void updateServiceManualInstances(
