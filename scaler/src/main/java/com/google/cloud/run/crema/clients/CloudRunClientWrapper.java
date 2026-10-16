@@ -18,6 +18,10 @@
 package com.google.cloud.run.crema.clients;
 
 import com.google.cloud.pubsub.v1.Publisher;
+import com.google.cloud.run.v2.GetServiceRequest;
+import com.google.cloud.run.v2.Service;
+import com.google.cloud.run.v2.ServiceName;
+import com.google.cloud.run.v2.ServicesClient;
 import com.google.common.flogger.FluentLogger;
 import com.google.common.flogger.MetadataKey;
 import com.google.protobuf.ByteString;
@@ -25,28 +29,76 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 public class CloudRunClientWrapper {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private static final MetadataKey<String> RESOURCE = MetadataKey.single("resource", String.class);
 
   private final String pubSubTopic;
+  private final ServicesClient servicesClient;
+  private final Map<String, Integer> lastSentInstancesCache = new ConcurrentHashMap<>();
 
   /**
-   * Constructor: Obtiene el tópico de Pub/Sub estrictamente de la variable de entorno PUB_SUB_TOPIC.
+   * Constructor: Inicializa el cliente oficial de Cloud Run v2 
+   * y obtiene el tópico de Pub/Sub desde la variable de entorno PUB_SUB_TOPIC.
    */
-  public CloudRunClientWrapper() {
+  public CloudRunClientWrapper() throws IOException {
     this.pubSubTopic = System.getenv("PUB_SUB_TOPIC");
     if (this.pubSubTopic == null || this.pubSubTopic.trim().isEmpty()) {
       throw new IllegalStateException(
           "La variable de entorno 'PUB_SUB_TOPIC' no está definida en el contenedor."
       );
     }
+    this.servicesClient = ServicesClient.create();
   }
 
-  public int getServiceInstanceCount(String projectId, String region, String serviceName) {
-    return 0;
+  public CloudRunClientWrapper(ServicesClient servicesClient) {
+    this.pubSubTopic = System.getenv("PUB_SUB_TOPIC");
+    this.servicesClient = servicesClient;
+  }
+
+  /**
+   * Consulta en tiempo real el valor del parámetro --min (Service scaling)
+   * e imprime el registro solicitado en el LOG.
+   */
+  public int getServiceMinParam(String serviceName, String projectId, String region) {
+    String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+    int currentMin = 0;
+
+    try {
+      ServiceName name = ServiceName.of(projectId, region, serviceName);
+      GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
+      Service service = servicesClient.getService(getRequest);
+
+      // 1. Obtener el valor del parámetro --min a nivel de servicio (Service scaling)
+      if (service.hasScaling()) {
+        currentMin = service.getScaling().getManualInstanceCount();
+      } 
+      // 2. Fallback a la plantilla de revisión (--min-instances) si no está configurado a nivel de servicio
+      else if (service.hasTemplate() && service.getTemplate().hasScaling()) {
+        currentMin = service.getTemplate().getScaling().getMinInstanceCount();
+      }
+
+      // Registro solicitado en el LOG
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("status actual de instancias del servicio (parametro --min) = %d", currentMin);
+
+    } catch (Exception e) {
+      logger.atWarning()
+          .with(RESOURCE, resourceName)
+          .log("No se pudo obtener el parámetro --min para %s: %s", serviceName, e.getMessage());
+    }
+
+    return currentMin;
+  }
+
+  public int getServiceInstanceCount(String serviceName, String projectId, String region) {
+    return getServiceMinParam(serviceName, projectId, region);
   }
 
   public int getWorkerPoolInstanceCount(String projectId, String region, String workerpoolName) {
@@ -62,22 +114,44 @@ public class CloudRunClientWrapper {
   }
 
   /**
-   * Publica el mensaje con el min_instances y la información del servicio hacia Pub/Sub.
+   * Compara la cantidad de instancias recomendadas contra el valor real de --min en Cloud Run.
+   * Si NO son iguales, aplica el valor recomendado y envía la orden a Pub/Sub.
    */
   public void updateServiceMinInstances(
       String serviceName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException, IOException {
 
     String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+
+    // 1. Consultar el parámetro --min actual en Cloud Run e imprimirlo en el LOG
+    int currentRealMin = getServiceMinParam(serviceName, projectId, region);
+
+    // 2. Si el valor recomendado es IGUAL al valor real de --min en Cloud Run, no se envía nada.
+    if (currentRealMin == instances) {
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("[SCALER] Sin cambios requeridos. El parámetro --min actual (%d) coincide con las instancias recomendadas (%d).", 
+               currentRealMin, instances);
+      lastSentInstancesCache.put(resourceName, instances);
+      return;
+    }
+
+    // 3. Si NO son iguales (ej: --min en Cloud Run es 2 y las recomendadas son 0), se envía la orden a Pub/Sub
+    logger.atInfo()
+        .with(RESOURCE, resourceName)
+        .log("[SCALER] Discrepancia detectada: --min actual en Cloud Run = %d, instancias recomendadas = %d. Enviando orden de ajuste...", 
+             currentRealMin, instances);
+
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
     Publisher publisher = null;
 
     try {
       publisher = Publisher.newBuilder(topicName).build();
 
+      // Formato de carga útil en JSON para la Cloud Function
       String jsonPayload = String.format(
-          "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min_instances\":\"%d\"}",
-          serviceName, projectId, region, instances
+          "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min\":%d, \"min_instances\":%d}",
+          serviceName, projectId, region, instances, instances
       );
 
       PubsubMessage pubsubMessage = PubsubMessage.newBuilder()
@@ -86,13 +160,27 @@ public class CloudRunClientWrapper {
 
       publisher.publish(pubsubMessage).get();
 
+      // Actualizar la caché local con el nuevo valor enviado
+      lastSentInstancesCache.put(resourceName, instances);
+
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Órden de escalado enviada a Pub/Sub (%s) para %s -> --min=%d", this.pubSubTopic, resourceName, instances);
+          .log("Órden enviada exitosamente a Pub/Sub (%s) para %s: [--min pasa de %d a %d]", 
+               this.pubSubTopic, resourceName, currentRealMin, instances);
 
+    } catch (Exception e) {
+      logger.atSevere()
+          .with(RESOURCE, resourceName)
+          .log("Error al publicar la orden de ajuste de --min=%d a Pub/Sub: %s", instances, e.getMessage());
+      throw e;
     } finally {
       if (publisher != null) {
-        publisher.shutdown();
+        try {
+          publisher.shutdown();
+          publisher.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+          // Ignorar excepciones al cerrar recursos del publisher
+        }
       }
     }
   }
