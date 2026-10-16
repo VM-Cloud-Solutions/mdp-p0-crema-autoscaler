@@ -34,19 +34,15 @@ public class CloudRunClientWrapper {
   private final String pubSubTopic;
 
   /**
-   * Constructor por defecto: Obtiene el tópico de la variable de entorno PUB_SUB_TOPIC.
+   * Constructor: Obtiene el tópico de Pub/Sub estrictamente de la variable de entorno PUB_SUB_TOPIC.
    */
   public CloudRunClientWrapper() {
-    this.pubSubTopic = System.getenv().getOrDefault("PUB_SUB_TOPIC", "cloud-run-scaler-topic");
-  }
-
-  /**
-   * Constructor que permite inyectar explícitamente el valor leído del YAML.
-   */
-  public CloudRunClientWrapper(String pubSubTopic) {
-    this.pubSubTopic = (pubSubTopic != null && !pubSubTopic.isEmpty())
-        ? pubSubTopic
-        : System.getenv().getOrDefault("PUB_SUB_TOPIC", "cloud-run-scaler-topic");
+    this.pubSubTopic = System.getenv("PUB_SUB_TOPIC");
+    if (this.pubSubTopic == null || this.pubSubTopic.trim().isEmpty()) {
+      throw new IllegalStateException(
+          "La variable de entorno 'PUB_SUB_TOPIC' no está definida en el contenedor."
+      );
+    }
   }
 
   public int getServiceInstanceCount(String projectId, String region, String serviceName) {
