@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,13 +25,18 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 public class CloudRunClientWrapper {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private static final MetadataKey<String> RESOURCE = MetadataKey.single("resource", String.class);
 
   private final String pubSubTopic;
+  // Caché en memoria para almacenar la última cantidad de instancias enviada por cada recurso
+  private final Map<String, Integer> lastSentInstancesCache = new ConcurrentHashMap<>();
 
   /**
    * Constructor: Obtiene el tópico de Pub/Sub estrictamente de la variable de entorno PUB_SUB_TOPIC.
@@ -62,37 +67,66 @@ public class CloudRunClientWrapper {
   }
 
   /**
-   * Publica el mensaje con el min_instances y la información del servicio hacia Pub/Sub.
+   * Publica la orden de escalado únicamente si la cantidad de instancias requeridas cambió respecto al ciclo anterior.
+   * Permite explícitamente el envío de '0' para asegurar el desescalado en Cloud Run.
    */
   public void updateServiceMinInstances(
       String serviceName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException, IOException {
 
     String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+
+    // 1. Verificar el último valor enviado en el ciclo anterior
+    Integer lastValue = lastSentInstancesCache.get(resourceName);
+    
+    // Si el valor recomendado (ej. 0 o 1) es IDÉNTICO al último enviado con éxito a Pub/Sub, se omite.
+    if (lastValue != null && lastValue == instances) {
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("[SCALER] Sin cambios para %s (instancias actuales en caché: %d). Se omite envío.", resourceName, instances);
+      return;
+    }
+
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
     Publisher publisher = null;
 
     try {
       publisher = Publisher.newBuilder(topicName).build();
 
+      // Payload JSON estandarizado para la Cloud Function
       String jsonPayload = String.format(
-          "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min_instances\":\"%d\"}",
-          serviceName, projectId, region, instances
+          "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min\":%d, \"min_instances\":%d}",
+          serviceName, projectId, region, instances, instances
       );
 
       PubsubMessage pubsubMessage = PubsubMessage.newBuilder()
           .setData(ByteString.copyFromUtf8(jsonPayload))
           .build();
 
+      // Publica y espera la confirmación (sincrónico)
       publisher.publish(pubsubMessage).get();
+
+      // 2. SOLO si la publicación en Pub/Sub fue exitosa, actualizamos la caché
+      lastSentInstancesCache.put(resourceName, instances);
 
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Órden de escalado enviada a Pub/Sub (%s) para %s -> --min=%d", this.pubSubTopic, resourceName, instances);
+          .log(" Transición de escalado exitosa para %s: [%s -> %d]. Orden enviada a Pub/Sub (%s)", 
+               resourceName, (lastValue == null ? "N/A" : lastValue), instances, this.pubSubTopic);
 
+    } catch (Exception e) {
+      logger.atSevere()
+          .with(RESOURCE, resourceName)
+          .log("Error al publicar la orden de escalado (--min=%d) a Pub/Sub: %s", instances, e.getMessage());
+      throw e;
     } finally {
       if (publisher != null) {
-        publisher.shutdown();
+        try {
+          publisher.shutdown();
+          publisher.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+          // Ignorar excepciones al cerrar recursos del cliente
+        }
       }
     }
   }
