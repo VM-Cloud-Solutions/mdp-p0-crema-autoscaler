@@ -106,4 +106,10 @@ public class CloudRunClientWrapper {
       throws ExecutionException, InterruptedException, IOException {
     updateServiceMinInstances(serviceName, instances, projectId, region);
   }
+
+  public void updateWorkerPoolManualInstances(
+      String workerpoolName, int instances, String projectId, String region)
+      throws ExecutionException, InterruptedException, IOException {
+    updateServiceMinInstances(workerpoolName, instances, projectId, region);
+  }
 }
