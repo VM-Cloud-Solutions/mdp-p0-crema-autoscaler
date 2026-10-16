@@ -223,11 +223,3 @@ public class CloudRunClientWrapper {
     return service;
   }
 }
-
-  private Service getService(String serviceName, String projectId, String region) {
-    ServiceName name = ServiceName.of(projectId, region, serviceName);
-    GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
-    Service service = servicesClient.getService(getRequest);
-    return service;
-  }
-}
