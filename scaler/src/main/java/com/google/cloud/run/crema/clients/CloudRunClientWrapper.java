@@ -62,8 +62,8 @@ public class CloudRunClientWrapper {
   }
 
   /**
-   * Consulta en tiempo real el valor del parámetro --min (Service scaling)
-   * e imprime el registro solicitado en el LOG.
+   * Consulta en tiempo real el parámetro --min configurado en el servicio.
+   * Maneja tanto Auto scaling como Manual scaling en la API v2 de Cloud Run.
    */
   public int getServiceMinParam(String serviceName, String projectId, String region) {
     String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
@@ -74,16 +74,24 @@ public class CloudRunClientWrapper {
       GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
       Service service = servicesClient.getService(getRequest);
 
-      // 1. Obtener el valor del parámetro --min a nivel de servicio (Service scaling)
-      if (service.hasScaling()) {
-        currentMin = service.getScaling().getManualInstanceCount();
-      } 
-      // 2. Fallback a la plantilla de revisión (--min-instances) si no está configurado a nivel de servicio
-      else if (service.hasTemplate() && service.getTemplate().hasScaling()) {
+      // 1. Revisar si la plantilla (template) tiene el escalado configurado
+      if (service.hasTemplate() && service.getTemplate().hasScaling()) {
         currentMin = service.getTemplate().getScaling().getMinInstanceCount();
       }
 
-      // Registro solicitado en el LOG
+      // 2. Si a nivel de plantilla es 0, verificar si está configurado a nivel de servicio (Service scaling)
+      if (currentMin == 0 && service.hasScaling()) {
+        // Si el modo es MANUAL, lee manualInstanceCount
+        if (service.getScaling().getScalingMode() == com.google.cloud.run.v2.ServiceScaling.ScalingMode.MANUAL) {
+          currentMin = service.getScaling().getManualInstanceCount();
+        } 
+        // Si está en Auto scaling, lee minInstanceCount a nivel de plantilla de servicio
+        else if (service.getScaling().getMinInstanceCount() > 0) {
+          currentMin = service.getScaling().getMinInstanceCount();
+        }
+      }
+
+      // Registro explícito en el LOG
       logger.atInfo()
           .with(RESOURCE, resourceName)
           .log("status actual de instancias del servicio (parametro --min) = %d", currentMin);
@@ -95,22 +103,6 @@ public class CloudRunClientWrapper {
     }
 
     return currentMin;
-  }
-
-  public int getServiceInstanceCount(String serviceName, String projectId, String region) {
-    return getServiceMinParam(serviceName, projectId, region);
-  }
-
-  public int getWorkerPoolInstanceCount(String projectId, String region, String workerpoolName) {
-    return 0;
-  }
-
-  public Instant getServiceLastDeploymentTime(String serviceName, String projectId, String region) {
-    return Instant.EPOCH;
-  }
-
-  public Instant getWorkerPoolLastDeploymentTime(String workerpoolName, String projectId, String region) {
-    return Instant.EPOCH;
   }
 
   /**
