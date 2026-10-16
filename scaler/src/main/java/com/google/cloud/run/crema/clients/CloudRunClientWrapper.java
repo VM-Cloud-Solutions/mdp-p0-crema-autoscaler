@@ -30,7 +30,6 @@ import com.google.cloud.run.v2.ServiceScaling;
 import com.google.cloud.run.v2.ServicesClient;
 import com.google.cloud.run.v2.UpdateServiceRequest;
 import com.google.cloud.run.v2.UpdateWorkerPoolRequest;
-import com.google.cloud.run.v2.VpcAccess;
 import com.google.cloud.run.v2.WorkerPool;
 import com.google.cloud.run.v2.WorkerPoolName;
 import com.google.cloud.run.v2.WorkerPoolScaling;
@@ -58,8 +57,8 @@ public class CloudRunClientWrapper {
   }
 
   public CloudRunClientWrapper(ServicesClient servicesClient, WorkerPoolsClient workerPoolsClient) {
-    this.servicesClient = ServicesClient.create();
-    this.workerPoolsClient = WorkerPoolsClient.create();
+    this.servicesClient = servicesClient;
+    this.workerPoolsClient = workerPoolsClient;
   }
 
   public int getWorkerPoolInstanceCount(String workerpoolName, String projectId, String region) {
@@ -135,52 +134,45 @@ public class CloudRunClientWrapper {
     
     String resourceName = ServiceName.of(projectId, region, serviceName).toString();
 
-    // 1. Obtener la configuracion actual del servicio
-    Service currentService = getService(serviceName, projectId, region);
+    // 1. Construir la configuracion de escalado unicamente con minInstanceCount
+    RevisionScaling newScaling =
+        RevisionScaling.newBuilder()
+            .setMinInstanceCount(instances)
+            .build();
 
-    // 2. Usar el builder del servicio actual
-    Service.Builder serviceBuilder = currentService.toBuilder();
-    RevisionTemplate.Builder templateBuilder = serviceBuilder.getTemplateBuilder();
+    // 2. Crear una plantilla limpia dedicada exclusivamente al escalado (sin datos adicionales)
+    RevisionTemplate templateToUpdate =
+        RevisionTemplate.newBuilder()
+            .setScaling(newScaling)
+            .build();
 
-    // 3. Corregir explicitamente el VPC Connector si no tiene el formato FQDN exigido por la API
-    if (templateBuilder.hasVpcAccess()) {
-      VpcAccess.Builder vpcBuilder = templateBuilder.getVpcAccessBuilder();
-      String currentConnector = vpcBuilder.getConnector();
-      
-      if (currentConnector != null && !currentConnector.isEmpty() && !currentConnector.startsWith("projects/")) {
-        String fullConnectorPath = String.format("projects/%s/locations/%s/connectors/%s", projectId, region, currentConnector);
-        vpcBuilder.setConnector(fullConnectorPath);
-        logger.atInfo()
-            .with(RESOURCE, resourceName)
-            .log("Formato de VPC Access Connector corregido: '%s' -> '%s'", currentConnector, fullConnectorPath);
-      }
-    }
+    // 3. Crear el objeto Service únicamente con el nombre de recurso y la plantilla de escalado
+    Service serviceToUpdate =
+        Service.newBuilder()
+            .setName(resourceName)
+            .setTemplate(templateToUpdate)
+            .build();
 
-    // 4. Modificar únicamente el valor de minInstanceCount dentro de la plantilla
-    RevisionScaling.Builder scalingBuilder = templateBuilder.getScalingBuilder();
-    scalingBuilder.setMinInstanceCount(instances);
+    // 4. Mascara de actualizacion estricta dedicada exclusivamente a template.scaling.min_instance_count
+    FieldMask updateMask =
+        FieldMask.newBuilder().addPaths("template.scaling.min_instance_count").build();
 
-    // 5. Mascara de actualizacion estricta dedicada exclusivamente a template.scaling.min_instance_count
-    FieldMask updateMask = FieldMask.newBuilder()
-        .addPaths("template.scaling.min_instance_count")
-        .build();
+    // 5. Construir el Request
+    UpdateServiceRequest updateRequest =
+        UpdateServiceRequest.newBuilder()
+            .setService(serviceToUpdate)
+            .setUpdateMask(updateMask)
+            .build();
 
-    // 6. Construir el Request
-    UpdateServiceRequest updateRequest = UpdateServiceRequest.newBuilder()
-        .setService(serviceBuilder.build())
-        .setUpdateMask(updateMask)
-        .build();
-
-    // Imprimir toda la informacion del Request en logs
     logger.atInfo()
         .with(RESOURCE, resourceName)
         .log("INFO REQUEST UpdateServiceRequest:\n%s", updateRequest.toString());
 
-    // 7. Enviar la peticion de actualizacion a Cloud Run v2
+    // 6. Enviar la peticion de actualizacion a Cloud Run v2
     OperationFuture<Service, Service> operation = servicesClient.updateServiceAsync(updateRequest);
     logCompletionAsync(resourceName, operation);
 
-    // 8. Esperar la resolucion de la operacion e imprimir la respuesta
+    // 7. Esperar a que la operacion asincrona finalice para obtener el objeto Service resultante
     Service responseService = operation.get();
 
     logger.atInfo()
@@ -223,6 +215,14 @@ public class CloudRunClientWrapper {
     WorkerPool workerPool = workerPoolsClient.getWorkerPool(request);
     return workerPool;
   }
+
+  private Service getService(String serviceName, String projectId, String region) {
+    ServiceName name = ServiceName.of(projectId, region, serviceName);
+    GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
+    Service service = servicesClient.getService(getRequest);
+    return service;
+  }
+}
 
   private Service getService(String serviceName, String projectId, String region) {
     ServiceName name = ServiceName.of(projectId, region, serviceName);
