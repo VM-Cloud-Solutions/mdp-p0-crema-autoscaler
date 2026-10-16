@@ -54,13 +54,14 @@ maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 CLOUD_TASKS_PROTO_VERSION = "2.82.0"
 CLOUD_MONITORING_PROTO_VERSION = "3.83.0"
 CLOUD_PUBSUB_VERSION = "1.135.0"
+CLOUD_PUBSUB_PROTO_VERSION = "1.112.0"
 PROTOBUF_VERSION = "4.33.4"
 FLOGGER_VERSION = "0.8"
 
 maven.install(
     artifacts = [
         "com.google.api.grpc:proto-google-cloud-monitoring-v3:" + CLOUD_MONITORING_PROTO_VERSION,
-        "com.google.api.grpc:proto-google-cloud-pubsub-v1:" + CLOUD_PUBSUB_VERSION,
+        "com.google.api.grpc:proto-google-cloud-pubsub-v1:" + CLOUD_PUBSUB_PROTO_VERSION,
         "com.google.api.grpc:proto-google-cloud-tasks-v2:" + CLOUD_TASKS_PROTO_VERSION,
         "com.google.cloud:google-cloud-pubsub:" + CLOUD_PUBSUB_VERSION,
         "com.google.cloud:google-cloud-run:0.78.0",
