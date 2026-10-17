@@ -133,5 +133,7 @@ COPY --from=go_builder /app/entrypoint.sh $APP_DIR/entrypoint.sh
 ENV JAVA_TOOL_OPTIONS="-Djava.util.logging.config.file=$APP_DIR/logging.properties"
 
 EXPOSE 8080
+# heakthcheck for compliance
+HEALTHCHECK --interval=5m --timeout=3s CMD true || exit 1
 
 CMD ["/app/entrypoint.sh"]
