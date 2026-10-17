@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/secretmanager v1.20.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
-	github.com/kedacore/keda/v2 v2.20.0
+	github.com/kedacore/keda/v2 v2.21.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/api v0.281.0
 	google.golang.org/grpc v1.82.1
