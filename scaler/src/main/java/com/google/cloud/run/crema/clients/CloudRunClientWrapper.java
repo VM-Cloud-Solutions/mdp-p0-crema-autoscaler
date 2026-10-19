@@ -137,6 +137,11 @@ public class CloudRunClientWrapper {
 
     String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
 
+    // Regla de negocio: Si el valor recomendado es 1, se le suma 1 para que pase a 2
+    if (instances == 1) {
+      instances = instances + 1; 
+    }
+
     // 1. Consultar el parámetro --min actual en Cloud Run e imprimirlo en el LOG
     int currentRealMin = getServiceMinParam(serviceName, projectId, region);
 
