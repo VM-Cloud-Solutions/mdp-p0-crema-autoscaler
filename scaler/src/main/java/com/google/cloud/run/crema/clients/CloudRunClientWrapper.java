@@ -184,7 +184,7 @@ public class CloudRunClientWrapper {
 
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Sent msg to Pub/Sub:  Update service (%s) - Instances %s: [--min goes from %d to %d]", 
+          .log("Sent msg to Pub/Sub channel (%s) - Update service %s: [--min goes from %d to %d]", 
                this.pubSubTopic, resourceName, currentRealMin, instances);
 
     } catch (Exception e) {
