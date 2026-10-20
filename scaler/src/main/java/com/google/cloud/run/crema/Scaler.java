@@ -183,9 +183,12 @@ public class Scaler {
             scalerConfig,
             now,
             workloadName);
-
+			
+    /*
     logger.atInfo().with(RESOURCE, workloadName).with(RECOMMENDED_INSTANCE_COUNT, newInstanceCount)
     .log("Recommended instances for %s: %d", workloadName, newInstanceCount);
+	*/
+	
     if (newInstanceCount != currentInstanceCount) {
       updateInstanceCount(newInstanceCount, workloadInfo);
       scalingStabilizer.markScaleEvent(
