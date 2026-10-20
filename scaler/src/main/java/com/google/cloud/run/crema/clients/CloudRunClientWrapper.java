@@ -94,7 +94,7 @@ public class CloudRunClientWrapper {
       // Registro explícito en el LOG
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("status actual de instancias del servicio (parametro --min) = %d", currentMin);
+          .log("status: current instances from service (parameter --min) = %d", currentMin);
 
     } catch (Exception e) {
       logger.atWarning()
@@ -149,7 +149,7 @@ public class CloudRunClientWrapper {
     if (currentRealMin == instances) {
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("[SCALER] Sin cambios requeridos. El parámetro --min actual (%d) coincide con las instancias recomendadas (%d).", 
+          .log("[SCALER] Not chamnges required. Current parameter --min actual (%d) is equal to recommended instances (%d).", 
                currentRealMin, instances);
       lastSentInstancesCache.put(resourceName, instances);
       return;
@@ -158,7 +158,7 @@ public class CloudRunClientWrapper {
     // 3. Si NO son iguales (ej: --min en Cloud Run es 2 y las recomendadas son 0), se envía la orden a Pub/Sub
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("[SCALER] Discrepancia detectada: --min actual en Cloud Run = %d, instancias recomendadas = %d. Enviando orden de ajuste...", 
+        .log("[SCALER] Scaling detected: --min actual en Cloud Run = %d, instances recommended = %d. Sending message to update...", 
              currentRealMin, instances);
 
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
