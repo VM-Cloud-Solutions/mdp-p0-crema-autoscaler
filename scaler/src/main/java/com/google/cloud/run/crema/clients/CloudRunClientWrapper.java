@@ -99,7 +99,7 @@ public class CloudRunClientWrapper {
     } catch (Exception e) {
       logger.atWarning()
           .with(RESOURCE, resourceName)
-          .log("No se pudo obtener el parámetro --min para %s: %s", serviceName, e.getMessage());
+          .log("Missing parameter values --min para %s: %s", serviceName, e.getMessage());
     }
 
     return currentMin;
@@ -158,7 +158,7 @@ public class CloudRunClientWrapper {
     // 3. Si NO son iguales (ej: --min en Cloud Run es 2 y las recomendadas son 0), se envía la orden a Pub/Sub
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("[SCALER] Scaling detected: --min actual en Cloud Run = %d, instances recommended = %d. Sending message to update...", 
+        .log("[SCALER] Scaling detected: --min current value on service = %d, instances recommended = %d. Sending message to update...", 
              currentRealMin, instances);
 
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
@@ -190,7 +190,7 @@ public class CloudRunClientWrapper {
     } catch (Exception e) {
       logger.atSevere()
           .with(RESOURCE, resourceName)
-          .log("Error al publicar la orden de ajuste de --min=%d a Pub/Sub: %s", instances, e.getMessage());
+          .log("Error: pub/Sub unknown error when sending msg--min=%d a Pub/Sub: %s", instances, e.getMessage());
       throw e;
     } finally {
       if (publisher != null) {
