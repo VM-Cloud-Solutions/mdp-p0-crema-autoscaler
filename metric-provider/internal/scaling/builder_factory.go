@@ -166,11 +166,11 @@ func buildScaler(ctx context.Context, triggerType string, config *scalersconfig.
 	case "azure-monitor":
 		return scalers.NewAzureMonitorScaler(config)
 	case "azure-pipelines":
-		return scalers.NewAzurePipelinesScaler(config)
+		return scalers.NewAzurePipelinesScaler(ctx, config)
 	case "azure-queue":
 		return scalers.NewAzureQueueScaler(config)
 	case "azure-servicebus":
-		return scalers.NewAzureServiceBusScaler(config)
+		return scalers.NewAzureServiceBusScaler(ctx, config)
 	case "beanstalkd":
 		return scalers.NewBeanstalkdScaler(config)
 	case "cassandra":
@@ -235,7 +235,7 @@ func buildScaler(ctx context.Context, triggerType string, config *scalersconfig.
 	case "openstack-metric":
 		return scalers.NewOpenstackMetricScaler(ctx, config)
 	case "openstack-swift":
-		return scalers.NewOpenstackSwiftScaler(ctx, config)
+		return scalers.NewOpenstackSwiftScaler(config)
 	case "postgresql":
 		return scalers.NewPostgreSQLScaler(ctx, config)
 	case "predictkube":
