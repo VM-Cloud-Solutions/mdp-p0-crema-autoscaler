@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/secretmanager v1.20.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
-	github.com/kedacore/keda/v2 v2.21.0
+	github.com/kedacore/keda/v2 v2.20.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/api v0.281.0
 	google.golang.org/grpc v1.82.1
@@ -294,7 +294,7 @@ require (
 )
 
 replace (
-	github.com/prometheus/prometheus => github.com/prometheus/prometheus v0.314.0
+	github.com/prometheus/prometheus => github.com/prometheus/prometheus v0.304.2
 	k8s.io/api => k8s.io/api v0.35.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.35.5
 	k8s.io/apimachinery => k8s.io/apimachinery v0.35.5
