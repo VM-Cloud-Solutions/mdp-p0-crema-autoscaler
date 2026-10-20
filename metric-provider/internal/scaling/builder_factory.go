@@ -166,7 +166,7 @@ func buildScaler(ctx context.Context, triggerType string, config *scalersconfig.
 	case "azure-monitor":
 		return scalers.NewAzureMonitorScaler(config)
 	case "azure-pipelines":
-		return scalers.NewAzurePipelinesScaler(ctx, config)
+		return scalers.NewAzurePipelinesScaler(config)
 	case "azure-queue":
 		return scalers.NewAzureQueueScaler(config)
 	case "azure-servicebus":
