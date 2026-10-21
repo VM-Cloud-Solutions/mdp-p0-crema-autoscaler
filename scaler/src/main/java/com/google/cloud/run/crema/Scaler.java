@@ -213,7 +213,7 @@ public class Scaler {
           scalerConfig.getBehavior(), now, currentInstanceCount, newInstanceCount);
     } else {
       logger.atInfo().with(RESOURCE, workloadName)
-      .log("Recommended instances for %s is unchanged.", workloadName);
+      .log("Recommended instances for service %s is unchanged.", workloadName);
     }
 
     if (staticConfig.outputScalerMetrics()) {
