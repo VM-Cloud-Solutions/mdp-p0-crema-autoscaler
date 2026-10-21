@@ -96,7 +96,7 @@ public class Scaler {
     int currentInstanceCount =
         InstanceCountProvider.getInstanceCount(cloudRunClientWrapper, workloadInfo);
     logger.atInfo().with(RESOURCE, workloadName).with(CURRENT_INSTANCE_COUNT, currentInstanceCount)
-    .log("Current instances for %s: %d", workloadName, currentInstanceCount);
+    .log("Current instances for service %s: %d", workloadName, currentInstanceCount);
 
     int unboundedRecommendation = 0;
     boolean hasValidTrigger = false;
@@ -111,11 +111,12 @@ public class Scaler {
 
     for (Metric metric : scaledObjectMetrics.getMetricsList()) {
       
-      // 1. Intercepta la métrica instance_count evaluando triggerId o targetValue = 5.0
+      // 1. Intercepta la métrica instance_count evaluando triggerId o la firma referencial target = 99.0
+      double targetVal = getMetricTargetValue(metric);
+      
       boolean isInstanceCountMetric = 
           (metric.getTriggerId() != null && metric.getTriggerId().contains("instance_count"))
-          || (metric.hasTargetAverageValue() && metric.getTargetAverageValue() == 5.0)
-          || (metric.hasTargetValue() && metric.getTargetValue() == 5.0);
+          || (Math.abs(targetVal - 99.0) < 0.001);
 
       if (isInstanceCountMetric) {
         reportedInstanceCountMetric = metric.getValue();
@@ -179,7 +180,7 @@ public class Scaler {
       // Si los disparadores de carga detectan tráfico (>0), forzar la recomendación inicial a 2 instancias
       if (unboundedRecommendation > 0) {
         logger.atInfo().log(
-            "Workload Detected over one instance. Sacling --min 2 instances para %s.", workloadName);
+            "Workload Detected over one instance. Scaling --min 2 instances para %s.", workloadName);
         unboundedRecommendation = max(unboundedRecommendation, 2);
       } else {
         logger.atInfo().log("De-escalate /according metrics.");
@@ -221,6 +222,17 @@ public class Scaler {
     }
 
     return ScalingStatus.SUCCEEDED;
+  }
+
+  // Extrae el valor objetivo numérico sin importar qué propiedad protobuf esté presente
+  private double getMetricTargetValue(Metric metric) {
+    if (metric.hasTargetAverageValue() && metric.getTargetAverageValue() > 0) {
+      return metric.getTargetAverageValue();
+    }
+    if (metric.hasTargetValue() && metric.getTargetValue() > 0) {
+      return metric.getTargetValue();
+    }
+    return 0.0;
   }
 
   // Output a recommendation according to stabilization and min and max instances
