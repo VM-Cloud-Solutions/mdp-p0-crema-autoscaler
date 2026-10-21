@@ -96,7 +96,7 @@ public class Scaler {
     int currentInstanceCount =
         InstanceCountProvider.getInstanceCount(cloudRunClientWrapper, workloadInfo);
     logger.atInfo().with(RESOURCE, workloadName).with(CURRENT_INSTANCE_COUNT, currentInstanceCount)
-    .log("Current instances for service %s: %d", workloadName, currentInstanceCount);
+    .log("Current instances for %s: %d", workloadName, currentInstanceCount);
 
     int unboundedRecommendation = 0;
     boolean hasValidTrigger = false;
@@ -115,7 +115,7 @@ public class Scaler {
       double targetVal = getMetricTargetValue(metric);
       
       boolean isInstanceCountMetric = 
-          (metric.getTriggerId() != null && metric.getTriggerId().contains("instance_count"))
+          (!metric.getTriggerId().isEmpty() && metric.getTriggerId().contains("instance_count"))
           || (Math.abs(targetVal - 99.0) < 0.001);
 
       if (isInstanceCountMetric) {
@@ -180,7 +180,7 @@ public class Scaler {
       // Si los disparadores de carga detectan tráfico (>0), forzar la recomendación inicial a 2 instancias
       if (unboundedRecommendation > 0) {
         logger.atInfo().log(
-            "Workload Detected over one instance. Scaling --min 2 instances para %s.", workloadName);
+            "Workload Detected over one instance. Sacling --min 2 instances para %s.", workloadName);
         unboundedRecommendation = max(unboundedRecommendation, 2);
       } else {
         logger.atInfo().log("De-escalate /according metrics.");
