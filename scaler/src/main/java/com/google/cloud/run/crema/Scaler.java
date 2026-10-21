@@ -284,6 +284,11 @@ public class Scaler {
         } catch (UnsupportedOperationException | com.google.api.gax.rpc.ApiException e) {
           throw new IOException(e);
         }
+        /*
+        logger.atInfo().log(
+            "Sent update request for service %s to set instances to %d.",
+            workloadInfo.name(), newInstanceCount);
+        */		  
       } else {
         try {
           cloudRunClientWrapper.updateWorkerPoolManualInstances(
