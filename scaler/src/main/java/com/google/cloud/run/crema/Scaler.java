@@ -111,8 +111,13 @@ public class Scaler {
 
     for (Metric metric : scaledObjectMetrics.getMetricsList()) {
       
-      // 1. Interceptar la métrica instance_count para la regla de negocio sin calcular recomendación directa
-      if (metric.getTriggerId() != null && metric.getTriggerId().contains("instance_count")) {
+      // 1. Intercepta la métrica instance_count evaluando triggerId o targetValue = 5.0
+      boolean isInstanceCountMetric = 
+          (metric.getTriggerId() != null && metric.getTriggerId().contains("instance_count"))
+          || (metric.hasTargetAverageValue() && metric.getTargetAverageValue() == 5.0)
+          || (metric.hasTargetValue() && metric.getTargetValue() == 5.0);
+
+      if (isInstanceCountMetric) {
         reportedInstanceCountMetric = metric.getValue();
         logger.atInfo().log(
             "Métrica instance_count capturada para %s con valor: %.2f", workloadName, reportedInstanceCountMetric);
