@@ -292,7 +292,7 @@ If configured, CREMA will emit the following metrics:
 
 | Release Image Tag | Supported KEDA Version | Release Status / Details |
 |:------------------|:-----------------------|:-------------------------|
-| `1.2`             | `v2.20`                | Upgraded version supporting latest KEDA frameworks. Preferred release tag. |
+| `1.3`             | `v2.21`                | Upgraded version supporting latest KEDA frameworks. Preferred release tag. |
 | `1.1`             | `v2.19`                | Legacy release. This version will no longer receive future updates or bug fixes. |
 | `1.0`             | `v2.17`                | Legacy release. This version will no longer receive future updates or bug fixes. |
 
