@@ -15,23 +15,6 @@
  *
  */
 
-/*
- * Copyright 2025 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
-
 package com.google.cloud.run.crema;
 
 import static java.lang.Math.clamp;
@@ -117,6 +100,7 @@ public class Scaler {
 
     int unboundedRecommendation = 0;
     boolean hasValidTrigger = false;
+    Double reportedInstanceCountMetric = null;
 
     if (scaledObjectMetrics.getMetricsCount() == 0) {
       logger.atInfo().with(RESOURCE, workloadName)
@@ -126,6 +110,20 @@ public class Scaler {
     }
 
     for (Metric metric : scaledObjectMetrics.getMetricsList()) {
+      
+      // 1. Interceptar la métrica instance_count para la regla de negocio sin calcular recomendación directa
+      if (metric.getTriggerId() != null && metric.getTriggerId().contains("instance_count")) {
+        reportedInstanceCountMetric = metric.getValue();
+        logger.atInfo().log(
+            "Métrica instance_count capturada para %s con valor: %.2f", workloadName, reportedInstanceCountMetric);
+        
+        if (staticConfig.outputScalerMetrics()) {
+          emitTriggerMetrics(metric, workloadInfo);
+        }
+        continue; // Omitir esta métrica del cálculo matemático de recomendación estándar
+      }
+
+      // 2. Procesamiento de disparadores estándar (Latencia, Concurrencia, Memoria, CPU)
       int recommendation;
       if (metric.hasTargetAverageValue() && metric.getTargetAverageValue() > 0) {
         if (metric.getValue() <= metric.getTargetAverageValue()) {
@@ -168,6 +166,21 @@ public class Scaler {
       return ScalingStatus.FAILED;
     }
 
+    // 3. Regla de Negocio: Evaluar si instance_count == 1 y definir salto a 2 instancias
+    if (reportedInstanceCountMetric != null && Double.compare(reportedInstanceCountMetric, 1.0) == 0) {
+      logger.atInfo().log(
+          "Business rule: Métrica instance_count == 1.0 para %s.", workloadName);
+      
+      // Si los disparadores de carga detectan tráfico (>0), forzar la recomendación inicial a 2 instancias
+      if (unboundedRecommendation > 0) {
+        logger.atInfo().log(
+            "Workload Detected over one instance. Sacling --min 2 instances para %s.", workloadName);
+        unboundedRecommendation = max(unboundedRecommendation, 2);
+      } else {
+        logger.atInfo().log("De-escalate /according metrics.");
+      }
+    }
+
     Advanced.ScalerConfig scalerConfig =
         scaledObjectMetrics.getScaledObject().getAdvanced().getScalerConfig();
 
@@ -183,12 +196,7 @@ public class Scaler {
             scalerConfig,
             now,
             workloadName);
-			
-    /*
-    logger.atInfo().with(RESOURCE, workloadName).with(RECOMMENDED_INSTANCE_COUNT, newInstanceCount)
-    .log("Recommended instances for %s: %d", workloadName, newInstanceCount);
-	*/
-	
+
     if (newInstanceCount != currentInstanceCount) {
       updateInstanceCount(newInstanceCount, workloadInfo);
       scalingStabilizer.markScaleEvent(
@@ -271,11 +279,6 @@ public class Scaler {
         } catch (UnsupportedOperationException | com.google.api.gax.rpc.ApiException e) {
           throw new IOException(e);
         }
-        /*
-        logger.atInfo().log(
-            "Sent update request for service %s to set instances to %d.",
-            workloadInfo.name(), newInstanceCount);
-        */
       } else {
         try {
           cloudRunClientWrapper.updateWorkerPoolManualInstances(
