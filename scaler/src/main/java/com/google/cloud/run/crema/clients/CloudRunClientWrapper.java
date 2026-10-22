@@ -90,18 +90,14 @@ public class CloudRunClientWrapper {
           currentMin = service.getScaling().getMinInstanceCount();
         }
       }
-
-      // Registro explícito en el LOG (Corrección: formato seguro para evitar errores de parsing)
-      logger.atInfo()
-          .with(RESOURCE, resourceName).log("status: current instances from service (parameter --min) = %d", currentMin);          
-    } catch (Exception e) {
+      logger.atWarnning()
+          .with(RESOURCE, resourceName).log("status: current instances from service (parameter --min) = %d", currentMin);
+      } catch (Exception e) {
       logger.atWarning()
           .with(RESOURCE, resourceName).log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
-    }
-
+      }
     return currentMin;
   }
-
   /**
    * Método requerido por InstanceCountProvider.java para obtener las instancias configuradas.
    */
