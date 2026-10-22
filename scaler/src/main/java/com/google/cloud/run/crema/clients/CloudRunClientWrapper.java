@@ -94,11 +94,7 @@ public class CloudRunClientWrapper {
       // Registro explícito en el LOG
       logger.atInfo()
           .with(RESOURCE, resourceName)
-
-          /*
           .log("status: current instances from service (parameter --min) = %d", currentMin);
-          */
-
     } catch (Exception e) {
       logger.atWarning()
           .with(RESOURCE, resourceName)
