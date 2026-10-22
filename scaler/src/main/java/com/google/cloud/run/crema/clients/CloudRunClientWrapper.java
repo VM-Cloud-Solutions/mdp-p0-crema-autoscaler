@@ -12,7 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
 package com.google.cloud.run.crema.clients;
@@ -66,12 +65,14 @@ public class CloudRunClientWrapper {
    * Maneja tanto Auto scaling como Manual scaling en la API v2 de Cloud Run.
    */
   public int getServiceMinParam(String serviceName, String projectId, String region) {
-    String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+    String resourceName = String.format(
+        "projects/%s/locations/%s/services/%s", projectId, region, serviceName);
     int currentMin = 0;
 
     try {
       ServiceName name = ServiceName.of(projectId, region, serviceName);
-      GetServiceRequest getRequest = GetServiceRequest.newBuilder().setName(name.toString()).build();
+      GetServiceRequest getRequest = GetServiceRequest.newBuilder()
+          .setName(name.toString()).build();
       Service service = servicesClient.getService(getRequest);
 
       // 1. Revisar si la plantilla (template) tiene el escalado configurado
@@ -79,25 +80,33 @@ public class CloudRunClientWrapper {
         currentMin = service.getTemplate().getScaling().getMinInstanceCount();
       }
 
-      // 2. Si a nivel de plantilla es 0, verificar si está configurado a nivel de servicio (Service scaling)
+      // 2. Si a nivel de plantilla es 0, verificar si está configurado a nivel de servicio
       if (currentMin == 0 && service.hasScaling()) {
         // Si el modo es MANUAL, lee manualInstanceCount
-        if (service.getScaling().getScalingMode() == com.google.cloud.run.v2.ServiceScaling.ScalingMode.MANUAL) {
+        if (service.getScaling().getScalingMode() 
+            == com.google.cloud.run.v2.ServiceScaling.ScalingMode.MANUAL) {
           currentMin = service.getScaling().getManualInstanceCount();
         } 
-        // Si está en Auto scaling, lee minInstanceCount a nivel de plantilla de servicio
+        // Si está en Auto scaling, lee minInstanceCount a nivel de servicio
         else if (service.getScaling().getMinInstanceCount() > 0) {
           currentMin = service.getScaling().getMinInstanceCount();
         }
       }
-      logger.atWarnning()
-          .with(RESOURCE, resourceName).log("status: current instances from service (parameter --min) = %d", currentMin);
-      } catch (Exception e) {
+
+      // Log exitoso corregido (antes tenía typo atWarnning y estructura rota)
+      logger.atInfo()
+          .with(RESOURCE, resourceName)
+          .log("status: current instances from service (parameter --min) = %d", currentMin);
+
+    } catch (Exception e) {
       logger.atWarning()
-          .with(RESOURCE, resourceName).log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
-      }
+          .with(RESOURCE, resourceName)
+          .log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
+    }
+
     return currentMin;
   }
+
   /**
    * Método requerido por InstanceCountProvider.java para obtener las instancias configuradas.
    */
@@ -117,7 +126,8 @@ public class CloudRunClientWrapper {
     return Instant.EPOCH;
   }
 
-  public Instant getWorkerPoolLastDeploymentTime(String workerpoolName, String projectId, String region) {
+  public Instant getWorkerPoolLastDeploymentTime(
+      String workerpoolName, String projectId, String region) {
     return Instant.EPOCH;
   }
 
@@ -129,21 +139,22 @@ public class CloudRunClientWrapper {
       String serviceName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException, IOException {
 
-    String resourceName = String.format("projects/%s/locations/%s/services/%s", projectId, region, serviceName);
+    String resourceName = String.format(
+        "projects/%s/locations/%s/services/%s", projectId, region, serviceName);
 
     // Regla de negocio: Si el valor recomendado es 1, se le suma 1 para que pase a 2
     if (instances == 1) {
-      instances = instances + 1; 
+      instances = instances + 1;
     }
 
-    // 1. Consultar el parámetro --min actual en Cloud Run e imprimirlo en el LOG
+    // 1. Consultar el parámetro --min actual en Cloud Run
     int currentRealMin = getServiceMinParam(serviceName, projectId, region);
 
-    // 2. Si el valor recomendado es IGUAL al valor real de --min en Cloud Run, no se envía nada.
+    // 2. Si el valor recomendado es IGUAL al valor real, no se envía nada
     if (currentRealMin == instances) {
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("[SCALER] No changes required. Current parameter --min (%d) equals recommended instances (%d).", 
+          .log("[SCALER] No changes required. Current parameter --min (%d) equals recommended (%d).",
                currentRealMin, instances);
       lastSentInstancesCache.put(resourceName, instances);
       return;
@@ -152,7 +163,7 @@ public class CloudRunClientWrapper {
     // 3. Si NO son iguales, se envía la orden a Pub/Sub
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("[SCALER] Scaling detected: --min current value = %d, recommended = %d. Sending message...", 
+        .log("[SCALER] Scaling detected: --min current=%d, recommended=%d. Sending message...",
              currentRealMin, instances);
 
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
@@ -164,8 +175,7 @@ public class CloudRunClientWrapper {
       // Formato de carga útil en JSON para la Cloud Function
       String jsonPayload = String.format(
           "{\"service\":\"%s\", \"project\":\"%s\", \"region\":\"%s\", \"min\":%d, \"min_instances\":%d}",
-          serviceName, projectId, region, instances, instances
-      );
+          serviceName, projectId, region, instances, instances);
 
       PubsubMessage pubsubMessage = PubsubMessage.newBuilder()
           .setData(ByteString.copyFromUtf8(jsonPayload))
@@ -178,7 +188,7 @@ public class CloudRunClientWrapper {
 
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Sent msg to Pub/Sub (%s) - Update service %s: [--min from %d to %d]", 
+          .log("Sent msg to Pub/Sub (%s) - Update service %s: [--min from %d to %d]",
                this.pubSubTopic, resourceName, currentRealMin, instances);
 
     } catch (Exception e) {
@@ -206,15 +216,14 @@ public class CloudRunClientWrapper {
 
   /**
    * CORRECCIÓN CRÍTICA: Los Worker Pools NO deben usar updateServiceMinInstances.
-   * Este método ahora lanza UnsupportedOperationException para evitar llamadas erróneas
+   * Este método lanza UnsupportedOperationException para evitar llamadas erróneas
    * a la API de Servicios Cloud Run con nombres de Worker Pools.
    */
   public void updateWorkerPoolManualInstances(
       String workerpoolName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException, IOException {
     throw new UnsupportedOperationException(
-        "Worker Pools no soportan actualización vía Pub/Sub de servicios Cloud Run. " +
-        "Implemente lógica específica para WorkerPoolsClient si es necesario."
-    );
+        "Worker Pools no soportan actualización vía Pub/Sub de servicios Cloud Run. "
+        + "Implemente lógica específica para WorkerPoolsClient si es necesario.");
   }
 }
