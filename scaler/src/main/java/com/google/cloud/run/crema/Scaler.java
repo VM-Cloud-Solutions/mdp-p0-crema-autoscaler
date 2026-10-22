@@ -95,8 +95,8 @@ public class Scaler {
 
     int currentInstanceCount =
         InstanceCountProvider.getInstanceCount(cloudRunClientWrapper, workloadInfo);
-    logger.atInfo().with(RESOURCE, workloadName).with(CURRENT_INSTANCE_COUNT, currentInstanceCount)
-    .log("Current instances for %s: %d", workloadName, currentInstanceCount);
+    // logger.atInfo().with(RESOURCE, workloadName).with(CURRENT_INSTANCE_COUNT, currentInstanceCount)
+    // .log("Current instances for %s: %d", workloadName, currentInstanceCount);
 
     int unboundedRecommendation = 0;
     boolean hasValidTrigger = false;
