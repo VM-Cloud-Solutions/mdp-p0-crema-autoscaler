@@ -47,6 +47,7 @@ RUN chown -R nonroot:nonroot /workspace
 USER nonroot
 
 # Build the Java binary
+RUN bazel clean --expunge
 RUN bazel build src/main/java/com/google/cloud/run/crema:scaler_server_deploy.jar
 
 # --- Go Builder ---
