@@ -91,14 +91,15 @@ public class CloudRunClientWrapper {
         }
       }
 
-      // Registro explícito en el LOG
+      // Registro explícito en el LOG (Corrección: formato seguro para evitar errores de parsing)
       logger.atInfo()
           .with(RESOURCE, resourceName)
           .log("status: current instances from service (parameter --min) = %d", currentMin);
+          
     } catch (Exception e) {
       logger.atWarning()
           .with(RESOURCE, resourceName)
-          .log("Missing parameter values --min para %s: %s", serviceName, e.getMessage());
+          .log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
     }
 
     return currentMin;
@@ -113,6 +114,7 @@ public class CloudRunClientWrapper {
 
   /**
    * Método requerido por InstanceCountProvider.java para Worker Pools.
+   * NOTA: Devuelve 0 porque los Worker Pools no tienen concepto de "--min" como los servicios.
    */
   public int getWorkerPoolInstanceCount(String workerpoolName, String projectId, String region) {
     return 0;
@@ -148,16 +150,16 @@ public class CloudRunClientWrapper {
     if (currentRealMin == instances) {
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("[SCALER] Not chamnges required. Current parameter --min actual (%d) is equal to recommended instances (%d).", 
+          .log("[SCALER] No changes required. Current parameter --min (%d) equals recommended instances (%d).", 
                currentRealMin, instances);
       lastSentInstancesCache.put(resourceName, instances);
       return;
     }
 
-    // 3. Si NO son iguales (ej: --min en Cloud Run es 2 y las recomendadas son 0), se envía la orden a Pub/Sub
+    // 3. Si NO son iguales, se envía la orden a Pub/Sub
     logger.atInfo()
         .with(RESOURCE, resourceName)
-        .log("[SCALER] Scaling detected: --min current value on service = %d, instances recommended = %d. Sending message to update...", 
+        .log("[SCALER] Scaling detected: --min current value = %d, recommended = %d. Sending message...", 
              currentRealMin, instances);
 
     TopicName topicName = TopicName.of(projectId, this.pubSubTopic);
@@ -183,13 +185,13 @@ public class CloudRunClientWrapper {
 
       logger.atInfo()
           .with(RESOURCE, resourceName)
-          .log("Sent msg to Pub/Sub channel (%s) - Update service %s: [--min goes from %d to %d]", 
+          .log("Sent msg to Pub/Sub (%s) - Update service %s: [--min from %d to %d]", 
                this.pubSubTopic, resourceName, currentRealMin, instances);
 
     } catch (Exception e) {
       logger.atSevere()
           .with(RESOURCE, resourceName)
-          .log("Error: pub/Sub unknown error when sending msg--min=%d a Pub/Sub: %s", instances, e.getMessage());
+          .log("Error sending msg to Pub/Sub for --min=%d: %s", instances, e.getMessage());
       throw e;
     } finally {
       if (publisher != null) {
@@ -209,9 +211,17 @@ public class CloudRunClientWrapper {
     updateServiceMinInstances(serviceName, instances, projectId, region);
   }
 
+  /**
+   * CORRECCIÓN CRÍTICA: Los Worker Pools NO deben usar updateServiceMinInstances.
+   * Este método ahora lanza UnsupportedOperationException para evitar llamadas erróneas
+   * a la API de Servicios Cloud Run con nombres de Worker Pools.
+   */
   public void updateWorkerPoolManualInstances(
       String workerpoolName, int instances, String projectId, String region)
       throws ExecutionException, InterruptedException, IOException {
-    updateServiceMinInstances(workerpoolName, instances, projectId, region);
+    throw new UnsupportedOperationException(
+        "Worker Pools no soportan actualización vía Pub/Sub de servicios Cloud Run. " +
+        "Implemente lógica específica para WorkerPoolsClient si es necesario."
+    );
   }
 }
