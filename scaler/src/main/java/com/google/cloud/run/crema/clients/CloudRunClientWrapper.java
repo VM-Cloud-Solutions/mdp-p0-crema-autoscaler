@@ -93,13 +93,10 @@ public class CloudRunClientWrapper {
 
       // Registro explícito en el LOG (Corrección: formato seguro para evitar errores de parsing)
       logger.atInfo()
-          .with(RESOURCE, resourceName)
-          .log("status: current instances from service (parameter --min) = %d", currentMin);
-          
+          .with(RESOURCE, resourceName).log("status: current instances from service (parameter --min) = %d", currentMin);          
     } catch (Exception e) {
       logger.atWarning()
-          .with(RESOURCE, resourceName)
-          .log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
+          .with(RESOURCE, resourceName).log("Missing parameter values --min for %s: %s", serviceName, e.getMessage());
     }
 
     return currentMin;
