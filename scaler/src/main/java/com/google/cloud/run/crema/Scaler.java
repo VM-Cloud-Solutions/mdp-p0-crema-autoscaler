@@ -178,7 +178,7 @@ public class Scaler {
     // 3. Regla de Negocio: Evaluar si instance_count == 1 y definir salto a 2 instancias
     if (reportedInstanceCountMetric != null && Double.compare(reportedInstanceCountMetric, 1.0) == 0) {
       logger.atInfo().log(
-          "Business rule: Métrica instance_count == 1.0 para %s.", workloadName);
+          "Business rule: Métric --> instance_count == 1.0 para %s.", workloadName);
       
       // Si los disparadores de carga detectan tráfico (>0), forzar la recomendación inicial a 2 instancias
       if (unboundedRecommendation > 0) {
