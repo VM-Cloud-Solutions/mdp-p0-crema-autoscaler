@@ -120,8 +120,11 @@ public class Scaler {
 
       if (isInstanceCountMetric) {
         reportedInstanceCountMetric = metric.getValue();
+        
+        /*
         logger.atInfo().log(
             "Métrica instance_count capturada para %s con valor: %.2f", workloadName, reportedInstanceCountMetric);
+        */
         
         if (staticConfig.outputScalerMetrics()) {
           emitTriggerMetrics(metric, workloadInfo);
@@ -182,9 +185,7 @@ public class Scaler {
         logger.atInfo().log(
             "Workload Detected over one instance. Sacling --min 2 instances para %s.", workloadName);
         unboundedRecommendation = max(unboundedRecommendation, 2);
-      } else {
-        logger.atInfo().log("De-escalate /according metrics.");
-      }
+      } 
     }
 
     Advanced.ScalerConfig scalerConfig =
