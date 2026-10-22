@@ -111,12 +111,12 @@ public class Scaler {
 
     for (Metric metric : scaledObjectMetrics.getMetricsList()) {
       
-      // 1. Intercepta la métrica instance_count evaluando triggerId o la firma referencial target = 99.0
+      // 1. Intercepta la métrica instance_count evaluando triggerId o la firma referencial target = 999999.0
       double targetVal = getMetricTargetValue(metric);
       
       boolean isInstanceCountMetric = 
           (!metric.getTriggerId().isEmpty() && metric.getTriggerId().contains("instance_count"))
-          || (Math.abs(targetVal - 99.0) < 0.001);
+          || (Math.abs(targetVal - 999999.0) < 0.001);
 
       if (isInstanceCountMetric) {
         reportedInstanceCountMetric = metric.getValue();
