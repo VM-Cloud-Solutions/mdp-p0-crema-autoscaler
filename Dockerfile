@@ -47,8 +47,8 @@ RUN chown -R nonroot:nonroot /workspace
 USER nonroot
 
 # Build the Java binary
-RUN bazel clean --expunge
-RUN bazel build src/main/java/com/google/cloud/run/crema:scaler_server_deploy.jar
+RUN bazel clean --expunge && \
+    bazel build src/main/java/com/google/cloud/run/crema:scaler_server_deploy.jar
 
 # --- Go Builder ---
 FROM gcr.io/cloud-marketplace/google/ubuntu2204 AS go_builder
@@ -72,8 +72,8 @@ RUN wget https://go.dev/dl/go1.25.8.linux-amd64.tar.gz && \
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 
 # Install proto plugins
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
 # Copy all source files needed for the Go build
 COPY ${SRC_DIR}/proto ./proto
@@ -88,10 +88,11 @@ RUN protoc --proto_path=. \
 
 # Build the Go app from the metric-provider directory
 WORKDIR /app/metric-provider
-RUN go mod download
-RUN go mod tidy
-RUN CGO_ENABLED=0 GOOS=linux go build -o main -ldflags "-w -s" .
-RUN chmod +x main
+
+RUN go mod download && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o main -ldflags "-w -s" . && \
+    chmod +x main
 
 # Make entrypoint script executable for the final image
 COPY ${SRC_DIR}/entrypoint.sh /app/entrypoint.sh
